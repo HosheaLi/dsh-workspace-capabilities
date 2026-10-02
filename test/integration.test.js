@@ -2,7 +2,7 @@
  * 集成测试：在**真实**的 0.2.0-rc.2 运行时上验证三条机制。
  *
  * 运行前需要一份从 App 包解出来的运行时（`app.asar/dsh`）：
- *   DSH_RUNTIME_DIR=/tmp/dshref/runtime node --test test/
+ *   DSH_RUNTIME_DIR=/tmp/dshref/runtime npm test
  *
  * 复刻的关键分层事实：本地技能 provider 挂在 **preset 层**，agent 挂在它下面
  * （`chainLayers(agent) = [presetLayer, agentLayer]`）。测试用
@@ -12,7 +12,7 @@
 
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -43,6 +43,26 @@ async function writeSkill(root, name, { description = `${name} 的描述`, body 
 async function writeJson(path, value) {
   await mkdir(join(path, '..'), { recursive: true });
   await writeFile(path, `${JSON.stringify(value, undefined, 2)}\n`, 'utf8');
+}
+
+/** 读一份配置 JSON。 */
+async function readJson(path) {
+  return JSON.parse(await readFile(path, 'utf8'));
+}
+
+/**
+ * 轮询等待条件成立。
+ *
+ * MCP 工具的 deny 补偿是异步的（注册 → tools/change → apply），固定 sleep 会偶发失败；
+ * 这里等到条件成立或超时，失败信息留给调用方断言。
+ */
+async function waitFor(predicate, { timeoutMs = 2000, stepMs = 10 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (predicate() === true) return true;
+    if (Date.now() > deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, stepMs));
+  }
 }
 
 /**
@@ -322,23 +342,24 @@ test('MCP：按工作区 deny，重连（迟到注册）后仍被 deny，反复�
 
     try {
       const disposers = [registerTool('mcp__comfy__generate'), registerTool('mcp__other__search'), registerTool('bash')];
-      // 等插件的 tools/change 补偿跑完（异步）。
-      await new Promise((resolve) => setTimeout(resolve, 50));
-
       const mainAgent = harness.bound[0].agent;
-      assert.equal(harness.root.tools.get('mcp__comfy__generate', mainAgent), undefined, '被关闭的服务器工具必须不可见');
+      // 等插件的 tools/change 补偿跑完（异步），而不是赌一个固定 sleep。
+      assert.ok(await waitFor(() => harness.root.tools.get('mcp__comfy__generate', mainAgent) === undefined), '被关闭的服务器工具必须不可见');
       assert.notEqual(harness.root.tools.get('mcp__other__search', mainAgent), undefined, '其他服务器不受影响');
 
       // 迟到注册 = 服务器重连：补偿必须把它也 deny 掉（缺了这一步工具会静默回来）。
       disposers.push(registerTool('mcp__comfy__reconnected'));
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      assert.equal(harness.root.tools.get('mcp__comfy__reconnected', mainAgent), undefined, '重连后的工具必须仍被 deny');
+      assert.ok(await waitFor(() => harness.root.tools.get('mcp__comfy__reconnected', mainAgent) === undefined), '重连后的工具必须仍被 deny');
 
       // 反复开关不卡死（restrict 同步 emit tools/change，防护不到位会栈溢出）。
       for (let i = 0; i < 5; i += 1) {
-        const ok = await harness.callRpc('setMcp', { cwd: harness.bound[0].project.dir, server: 'comfy', enabled: i % 2 === 0 });
+        const enabled = i % 2 === 0;
+        const ok = await harness.callRpc('setMcp', { cwd: harness.bound[0].project.dir, server: 'comfy', enabled });
         assert.equal(ok.ok, true, `setMcp 第 ${i} 次应成功：${JSON.stringify(ok)}`);
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        const synced = await waitFor(
+          () => (harness.root.tools.get('mcp__comfy__generate', mainAgent) === undefined) === !enabled,
+        );
+        assert.ok(synced, `setMcp 第 ${i} 次（enabled=${enabled}）后可见性未同步`);
       }
       // 另一工作区不受影响：ses-b 的 cwd 没有配置，comfy 工具照常可见。
       assert.notEqual(harness.root.tools.get('mcp__comfy__generate', harness.bound[1].agent), undefined, '另一工作区不该被连累');
@@ -378,6 +399,14 @@ test('面板 RPC：state / setSkill 写盘即时生效，无需重启或新开�
       assert.equal(cleared.ok, true);
       const restored = (await harness.list()).find((skill) => skill.name === 'toggle-skill');
       assert.equal(restored.invocation.modelInvocable, true, '清除显式配置后回落到 default=pinned');
+
+      // 没有活动会话的工作区：不能拿别的 agent 顶替着报"可见性"，必须如实说没有探针。
+      const stray = join(dirs.project, '..', 'stray');
+      await mkdir(join(stray, '.git'), { recursive: true });
+      const strayState = await harness.callRpc('state', { cwd: stray });
+      assert.equal(strayState.ok, true, JSON.stringify(strayState));
+      assert.equal(strayState.value.mcpProbe, undefined, '没有该工作区的 agent 就不该报可见工具数');
+      assert.ok(strayState.value.mcp.every((server) => server.visibleTools === undefined));
     } finally {
       await harness.dispose();
     }
@@ -401,6 +430,76 @@ test('面板 RPC 必须逐请求过 Connection 栅栏：无凭据返回 401，�
       const allowed = await harness.callRpc('setSkill', { cwd: dirs.project, name: 'guarded-skill', state: 'off' });
       assert.equal(allowed.ok, true, JSON.stringify(allowed));
       assert.equal(existsSync(join(dirs.project, '.dsh', 'skills-scope.json')), true);
+    } finally {
+      await harness.dispose();
+    }
+  });
+});
+
+test('写项目层不物化 default：全局的 manual 不会被一次技能开关顶掉', async () => {
+  await withEnv(async ({ dshHome, customDir, dirs }) => {
+    await writeSkill(join(dshHome, 'skills'), 'keep-manual');
+    await writeSkill(join(dshHome, 'skills'), 'set-off');
+    // 全局层：默认只手动（"别自动进模型目录"）
+    await writeJson(join(dshHome, 'settings', 'skills-scope.json'), { version: 1, default: 'manual', skills: {}, mcp: {} });
+
+    const harness = await makeHarness({ dshHome, customDir, projects: [{ id: 'ses-a', dir: dirs.project }] });
+    try {
+      const written = await harness.callRpc('setSkill', { cwd: dirs.project, name: 'set-off', state: 'off' });
+      assert.equal(written.ok, true, JSON.stringify(written));
+
+      const project = await readJson(join(dirs.project, '.dsh', 'skills-scope.json'));
+      assert.equal('default' in project, false, '没动 default 就不该在项目层写入这个键');
+
+      const rows = new Map((await harness.list()).map((skill) => [skill.name, skill.invocation]));
+      assert.equal(rows.get('keep-manual').modelInvocable, false, '全局 default=manual 必须继续生效');
+      assert.equal(rows.get('keep-manual').userInvocable, true);
+      assert.equal(rows.get('set-off').userInvocable, false, '显式 off 生效');
+    } finally {
+      await harness.dispose();
+    }
+  });
+});
+
+test('两次并发写入都落盘：读-改-写在串行链内完成，不丢更新', async () => {
+  await withEnv(async ({ dshHome, customDir, dirs }) => {
+    await writeSkill(join(dshHome, 'skills'), 'first-skill');
+    await writeSkill(join(dshHome, 'skills'), 'second-skill');
+    const harness = await makeHarness({ dshHome, customDir, projects: [{ id: 'ses-a', dir: dirs.project }] });
+    try {
+      // 两个技能几乎同时切换（两次快速点击 / 两个标签页）。
+      const [first, second] = await Promise.all([
+        harness.callRpc('setSkill', { cwd: dirs.project, name: 'first-skill', state: 'off' }),
+        harness.callRpc('setSkill', { cwd: dirs.project, name: 'second-skill', state: 'manual' }),
+      ]);
+      assert.equal(first.ok, true, JSON.stringify(first));
+      assert.equal(second.ok, true, JSON.stringify(second));
+
+      const project = await readJson(join(dirs.project, '.dsh', 'skills-scope.json'));
+      assert.deepEqual(project.skills, { 'first-skill': 'off', 'second-skill': 'manual' }, '两次改动都必须留下');
+    } finally {
+      await harness.dispose();
+    }
+  });
+});
+
+test('项目配置损坏时拒绝写入：报错而不是拿空配置覆盖用户文件', async () => {
+  await withEnv(async ({ dshHome, customDir, dirs }) => {
+    await writeSkill(join(dshHome, 'skills'), 'some-skill');
+    const path = join(dirs.project, '.dsh', 'skills-scope.json');
+    await writeFile(path, '{ 手工写坏的 json', 'utf8');
+
+    const harness = await makeHarness({ dshHome, customDir, projects: [{ id: 'ses-a', dir: dirs.project }] });
+    try {
+      const written = await harness.callRpc('setSkill', { cwd: dirs.project, name: 'some-skill', state: 'off' });
+      assert.equal(written.ok, false, '损坏文件必须拒写');
+      assert.match(written.error, /不是合法 JSON/);
+      assert.equal(await readFile(path, 'utf8'), '{ 手工写坏的 json', '原文件必须原样保留');
+
+      // 面板仍能看到问题所在（readError），鼠标点不动但人知道去哪修。
+      const state = await harness.callRpc('state', { cwd: dirs.project });
+      assert.equal(state.ok, true);
+      assert.match(state.value.scope.readError ?? '', /JSON 解析失败/);
     } finally {
       await harness.dispose();
     }

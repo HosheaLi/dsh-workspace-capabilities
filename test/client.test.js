@@ -99,5 +99,7 @@ test('展示辅助：字节数与路径收敛', async () => {
   assert.equal(__logic.readableSize(3 * 1024 * 1024), '3.0 MB');
   assert.equal(__logic.readableSize(undefined), '');
   assert.equal(__logic.shortenPath('/Users/someone/code/x'), '~/code/x');
+  assert.equal(__logic.shortenPath('/home/me/code/x'), '~/code/x');
+  assert.equal(__logic.shortenPath('/Users/someone'), '/Users/someone');
   assert.equal(__logic.shortenPath('/opt/other'), '/opt/other');
 });
