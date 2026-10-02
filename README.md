@@ -39,7 +39,8 @@
 - **项目根**沿用 DSH 判定：最近的含 `.git` 的祖先目录，没有则用当前 cwd。
 - **路径刻意分离**：官方 `findProjectRoot` 在没有 `.git` 祖先时兜底返回原始 cwd，而 `~` 下没有 `.git`，所以在 home 目录里工作时"项目根"就是 home。全局配置放在 `$DSH_HOME/settings/` 而不是 `$DSH_HOME/` 根，并且**项目根等于 home 时跳过项目层** —— 否则两级配置会变成同一个文件，静默互相覆盖。
 - **匹配优先级**：精确名 > 通配符（多个命中取最长模式）> `default`。
-- 写盘是原子的（`mkdir -p` → 写 `tmp-<pid>-<n>` → `rename`），同一路径的并发写被串行化。
+- **`default` 只在显式设置过时才落盘**：缺省写一个默认值等于把它物化成显式配置，而项目层优先，于是"在项目里关掉一个技能"会顺带用 `pinned` 盖掉你全局设的 `manual`/`off`。
+- **写盘**：`mkdir -p` → 写 `tmp-<pid>-<n>` → `rename`；**读-改-写整条链在同一路径上串行**（两次快速点击不会互相覆盖），顶层未知键原样保留（向前兼容），文件存在但不是合法 JSON 时**拒绝写入并报错**，绝不拿空配置覆盖你手工修的内容。
 
 ## 界面
 
@@ -58,7 +59,7 @@
 
    ```bash
    mkdir -p ~/.dsh/profiles/desktop/node_modules
-   ln -sfn /path/to/dsh-workspace-scope ~/.dsh/profiles/desktop/node_modules/dsh-workspace-scope
+   ln -sfn ~/code/D03_dsh-workspace-scope ~/.dsh/profiles/desktop/node_modules/dsh-workspace-scope
    ```
 
 2. 在 profile 的 `cordis.patch.yml` 里插一行：
@@ -97,15 +98,17 @@
 ## 开发与测试
 
 ```bash
-# 单元测试（纯 JS，无宿主依赖）
-node --test test/config.test.js
+# 单元测试（纯 JS，无宿主依赖）—— test/config.test.js / test/rpc.test.js / test/client.test.js
+npm test
 
 # 集成测试：在真实的 0.2.0-rc.2 运行时上跑
 # 先从 App 包里解出运行时：<app.asar>/dsh → /tmp/dshref/runtime
-DSH_RUNTIME_DIR=/tmp/dshref/runtime node --test "test/**/*.test.js"
+DSH_RUNTIME_DIR=/tmp/dshref/runtime npm test
 ```
 
-集成测试覆盖：agent 层 shadow 赢过 preset 层的 filesystem provider、三条调用路径的语义、通配符/两级配置、能力边界、MCP deny（含迟到注册补偿与反复切换不卡死）、面板 RPC 全链路（含鉴权栅栏与写盘即时生效）。
+**注意用 App 自带的 node**（`/Applications/DeepSeek Harness.app/Contents/Resources/runtime/primary-runtime/dependencies/node/bin/node`，v24）：系统 Node v25 加载宿主原生模块会报 `No usable native binding found for node-addon-require-builtin-darwin-arm64`。
+
+覆盖范围：agent 层 shadow 赢过 preset 层的 filesystem provider、三条调用路径的语义、通配符/两级配置、能力边界、MCP deny（含迟到注册补偿与反复切换不卡死）、面板 RPC 全链路（鉴权栅栏逐请求生效、写盘即时生效、并发写不丢更新、`default` 不被物化、损坏配置拒写）、路由注册失败后的重试与无 Connection 时的退化栅栏。
 
 ## 许可
 
