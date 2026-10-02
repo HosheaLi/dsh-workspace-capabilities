@@ -1,0 +1,9 @@
+# dsh-workspace-scope 的 bundle patch：把 host 半边插进 profile 的 host 组合。
+# client 半边由 package.json 的 `dsh.client` 声明自动加载，不需要在这里再插一行。
+#
+# 装法（二选一）：
+#   1) 把本包加进 profile 的 `dsh.profile.bundles`（推荐，随 profile 一起升级）；
+#   2) 在 profile 的 cordis.patch.yml 里 insert 一行 name: 'dsh-workspace-scope'。
+- insert:
+    - id: workspace-scope
+      name: 'dsh-workspace-scope'
