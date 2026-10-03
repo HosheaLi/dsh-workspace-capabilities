@@ -102,13 +102,18 @@
 # 所以新克隆直接 npm test 不会变红（输出里的 skipped 数会告诉你跳过了几条）。
 npm test
 
-# 只跑纯 JS 单测（无宿主依赖）—— test/config.test.js / rpc.test.js / client.test.js / render.test.js / catalog.test.js / policy.test.js / mcp.test.js
+# 只跑纯 JS 单测（无宿主依赖）—— test/config.test.js / rpc.test.js / client.test.js / render.test.js / catalog.test.js / policy.test.js / mcp.test.js / skills.test.js / index.test.js
 npm run test:unit
 
 # 只跑集成测试：在真实的 0.2.0-rc.2 运行时上跑
 # 先从 App 包里解出运行时：<app.asar>/dsh → /tmp/dshref/runtime
 DSH_RUNTIME_DIR=/tmp/dshref/runtime npm run test:integration
+
+# 覆盖率（8 个 lib 文件，当前行 100% / 分支 ~90%）
+node --test --experimental-test-coverage "test/**/*.test.js"
 ```
+
+**覆盖率口径**：`lib/client.js` 的测试通过 `test/helpers/client-bundle.js` **每个进程只 import 一次**。早先用 `?t=<n>` 绕 ESM 缓存会让同一文件产生多个脚本实例，而覆盖率报告只保留其中一个，数字会被压低一半以上，补测试也看不出来。
 
 **注意用 App 自带的 node**（`/Applications/DeepSeek Harness.app/Contents/Resources/runtime/primary-runtime/dependencies/node/bin/node`，v24）：在系统 Node 上跑 **dsh 本体**、加载宿主原生模块时会报 `No usable native binding found for node-addon-require-builtin-darwin-arm64`。本插件的测试不触发该路径（实测系统 Node v25.9.0 全绿），但装插件、跑宿主仍请用 App 自带的 node。
 

@@ -229,3 +229,91 @@ test('原子写：并发读-改-写同一路径后文件是完整 JSON，且不�
     await rm(base, { recursive: true, force: true });
   }
 });
+
+test('dshHome：$DSH_HOME 缺失或为空白时回落到 ~/.dsh', () => {
+  assert.equal(dshHome({}), join(homedir(), '.dsh'));
+  assert.equal(dshHome({ DSH_HOME: '   ' }), join(homedir(), '.dsh'), '空白串也算未设置');
+  assert.equal(dshHome({ DSH_HOME: ' /tmp/x ' }), '/tmp/x', '两侧空白被裁掉');
+});
+
+test('globToRegExp：正则元字符按字面量转义', () => {
+  assert.ok(globToRegExp('a[1]*').test('a[1]x'), '方括号是字面量');
+  assert.ok(!globToRegExp('a[1]*').test('a1x'), '不做字符类');
+  assert.ok(globToRegExp('a+b?').test('a+bX'), '+ 是字面量、? 是单字符');
+});
+
+test('readConfigFile：读目录等非 ENOENT 错误也降级并带上 error', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'wscope-readerr-'));
+  try {
+    const read = await readConfigFile(base);
+    assert.equal(read.exists, false);
+    assert.match(read.error ?? '', /读取失败/);
+    assert.deepEqual(read.config.skills, {});
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test('updateConfigFile：顶层不是 JSON 对象时拒绝写入（数组/标量/字符串）', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'wscope-toplevel-'));
+  try {
+    for (const text of ['[]', '"just a string"', '42', 'null']) {
+      const path = join(base, 'cfg.json');
+      await writeFile(path, text, 'utf8');
+      await assert.rejects(() => updateConfigFile(path, (config) => config), /顶层必须是 JSON 对象/, text);
+      assert.equal(await readFile(path, 'utf8'), text, '拒写时原文件必须原样保留');
+    }
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test('updateConfigFile：目标是目录时按读取失败上抛，不吞错', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'wscope-dir-'));
+  try {
+    const path = join(base, 'as-a-dir');
+    await mkdir(path, { recursive: true });
+    await assert.rejects(() => updateConfigFile(path, (config) => config), /EISDIR|illegal operation|目录/);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test('写入链失败不阻断后续写入', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'wscope-chain-'));
+  try {
+    const path = join(base, 'cfg.json');
+    await writeFile(path, '{ 坏 json', 'utf8');
+    await assert.rejects(() => updateConfigFile(path, (config) => withSkillState(config, 'a', 'off')), /不是合法 JSON/);
+
+    // 同一路径上的下一次写入照常进行（前一次失败不污染链）
+    await writeFile(path, `${JSON.stringify({ version: 1, skills: {}, mcp: {} })}\n`, 'utf8');
+    await updateConfigFile(path, (config) => withSkillState(config, 'b', 'manual'));
+    const parsed = JSON.parse(await readFile(path, 'utf8'));
+    assert.deepEqual(parsed.skills, { b: 'manual' });
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test('原子写：目标不可写时抛错并清理临时文件', async (t) => {
+  if (typeof process.getuid === 'function' && process.getuid() === 0) {
+    t.skip('root 会绕过目录权限，无法构造写入失败');
+    return;
+  }
+  const { chmod } = await import('node:fs/promises');
+  const base = await mkdtemp(join(tmpdir(), 'wscope-rowrite-'));
+  const readonly = join(base, 'readonly');
+  try {
+    await mkdir(readonly, { recursive: true });
+    await chmod(readonly, 0o500);
+    const path = join(readonly, 'cfg.json');
+    await assert.rejects(() => updateConfigFile(path, (config) => withSkillState(config, 'a', 'off')));
+    await chmod(readonly, 0o700);
+    const { readdir } = await import('node:fs/promises');
+    assert.deepEqual((await readdir(readonly)).filter((name) => name.includes('.tmp-')), [], '失败也要清掉临时文件');
+  } finally {
+    await chmod(readonly, 0o700).catch(() => {});
+    await rm(base, { recursive: true, force: true });
+  }
+});

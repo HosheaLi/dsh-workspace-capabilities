@@ -123,3 +123,37 @@ test('collectCatalog：agent 视图、preset 兜底、global 兜底，且只认 
   assert.deepEqual(emptyPreset.rows.map((row) => row.name), ['global-only']);
   assert.match(emptyPreset.notice ?? '', /全局层/);
 });
+
+test('stripFrontmatter：只有分隔行、没有正文时也算拒绝', () => {
+  // 首行 `---` 之后紧跟空行：循环自然走完（lineStart 越过长度），返回 undefined。
+  assert.equal(stripFrontmatter('---\n\n'), undefined);
+});
+
+test('readSkillBody / fileSizeOf：读不到一律返回 undefined，不抛', async () => {
+  const { mkdtemp, mkdir, rm, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { fileSizeOf, readSkillBody } = await import('../lib/catalog.js');
+
+  const base = await mkdtemp(join(tmpdir(), 'wscope-catalog-'));
+  try {
+    const missing = join(base, 'nope.md');
+    assert.equal(await readSkillBody(missing), undefined, '文件不存在');
+    assert.equal(await readSkillBody(missing, new AbortController().signal), undefined, '带 signal 的路径同样安全');
+    assert.equal(await readSkillBody(base), undefined, '路径是目录（EISDIR）也不抛');
+
+    assert.equal(await fileSizeOf(base), undefined, '目录不算文件');
+    assert.equal(await fileSizeOf(missing), undefined, '不存在的路径返回 undefined');
+
+    const ok = join(base, 'ok.md');
+    await writeFile(ok, '---\nname: a\ndescription: d\n---\n\n正文\n', 'utf8');
+    assert.equal(await readSkillBody(ok), '正文');
+    assert.equal(typeof await fileSizeOf(ok), 'number');
+
+    const nested = join(base, 'deep', 'dir');
+    await mkdir(nested, { recursive: true });
+    assert.equal(await fileSizeOf(nested), undefined);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});

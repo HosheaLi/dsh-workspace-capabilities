@@ -10,24 +10,13 @@
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { pathToFileURL } from 'node:url';
 
-/** 单调计数器：`Date.now()` 同毫秒会撞上 ESM 模块缓存，缓存命中的 factory 不再执行。 */
-let loadSeq = 0;
+import { loadBundleEntry, seedRequire } from './helpers/client-bundle.js';
 
-/** 让模块在 node 里可加载：捕获 `window.__ModuleLoader__.load` 的入参。 */
+/** 让模块在 node 里可加载：拿到共享的 bundle 入口，再 factory 出本用例专属的 exports。 */
 async function loadBundle() {
-  let captured;
-  globalThis.window = {
-    __ModuleLoader__: {
-      load: (entry) => {
-        captured = entry;
-      },
-    },
-  };
-  await import(`${pathToFileURL(new URL('../lib/client.js', import.meta.url).pathname).href}?t=${++loadSeq}`);
-  assert.ok(captured !== undefined, 'bundle 必须调用 window.__ModuleLoader__.load');
-  assert.equal(captured.id, 'dsh-workspace-scope');
+  const entry = await loadBundleEntry();
+  assert.equal(entry.id, 'dsh-workspace-scope');
 
   const React = {
     createElement: () => null,
@@ -37,11 +26,7 @@ async function loadBundle() {
     useRef: (value) => ({ current: value }),
     useState: (value) => [value, () => {}],
   };
-  const exports = captured.factory((name) => {
-    if (name === 'react') return React;
-    throw new Error(`bundle 不允许 require 平台种子之外的模块：${name}`);
-  });
-  return exports;
+  return entry.factory((name) => seedRequire(name, { react: React }));
 }
 
 test('bundle 形状：导出 apply / inject，只 require react', async () => {

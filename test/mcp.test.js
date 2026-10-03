@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { denyNamesFor, mcpServerOf, mcpServersOf } from '../lib/mcp.js';
+import { createMcpRestrictor, denyNamesFor, mcpServerOf, mcpServersOf } from '../lib/mcp.js';
 
 test('mcpServerOf：基本解析与非法输入', () => {
   assert.equal(mcpServerOf('mcp__comfy__generate'), 'comfy');
@@ -44,4 +44,132 @@ test('denyNamesFor：按服务器开关剔除工具，且 respect 已知服务�
   const tricky = [{ name: 'mcp__my__server__do_thing' }];
   assert.deepEqual(denyNamesFor(tricky, (server) => server !== 'my__server'), []);
   assert.deepEqual(denyNamesFor(tricky, (server) => server !== 'my__server', ['my__server']), ['mcp__my__server__do_thing']);
+});
+
+// ── restrict 施加器：三段式防护 + 代际补偿 ──────────────────────────────────
+
+/**
+ * 造一个施加器与它的 agent 替身。
+ * @param options - `{ deny, tools, logger, onRestrict }`。
+ */
+function makeRestrictor({ deny = ['mcp__comfy__generate'], tools, warn } = {}) {
+  const calls = { restrict: [], warn: warn ?? [] };
+  const scopedTools = tools ?? {
+    restrict: ({ deny: list }) => {
+      calls.restrict.push([...list]);
+      return () => {};
+    },
+  };
+  const restrictor = createMcpRestrictor({
+    denyNamesFor: typeof deny === 'function' ? deny : async () => deny,
+    logger: { warn: (...args) => calls.warn.push(args.join(' ')) },
+  });
+  const agent = { id: 'agent-1', ctx: { get: (service) => (service === 'tools' ? scopedTools : undefined) } };
+  return { restrictor, agent, calls, scopedTools };
+}
+
+test('apply：首次施加 deny，名单没变时不动（集合比较），变了才重装', async () => {
+  let deny = ['mcp__comfy__generate'];
+  const disposers = [];
+  const { restrictor, agent, calls } = makeRestrictor({
+    deny: async () => deny,
+    tools: { restrict: ({ deny: list }) => { calls.restrict.push([...list]); const dispose = () => disposers.push([...list]); disposers.push; return () => { disposers.push('disposed'); }; } },
+  });
+
+  await restrictor.apply(agent);
+  assert.deepEqual(calls.restrict, [['mcp__comfy__generate']], '首次按名单施加');
+
+  await restrictor.apply(agent);
+  assert.equal(calls.restrict.length, 1, '名单逐项相同时不该重复施加');
+
+  deny = ['mcp__comfy__generate', 'mcp__comfy__list'];
+  await restrictor.apply(agent);
+  assert.equal(disposers.length, 1, '名单变化时先撤销旧限制');
+  assert.deepEqual(calls.restrict.at(-1), ['mcp__comfy__generate', 'mcp__comfy__list']);
+
+  deny = [];
+  await restrictor.apply(agent);
+  assert.equal(disposers.length, 2, '名单清空也要撤销');
+  assert.equal(calls.restrict.length, 2, '名单为空时不建立新限制');
+});
+
+test('apply：restrict 同步回调自己不递归（哨兵），无 scoped tools 时安全返回', async () => {
+  let nested = 0;
+  const { restrictor, agent, calls } = makeRestrictor({
+    tools: {
+      restrict: ({ deny: list }) => {
+        calls.restrict.push([...list]);
+        // 真实 `tools.restrict` 会同步 emit tools/change → 触发一次重入 apply
+        void restrictor.apply(agent).then(() => { nested += 1; });
+        return () => {};
+      },
+    },
+  });
+  await restrictor.apply(agent);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(calls.restrict.length, 1, '重入必须被哨兵挡下，不能无限递归');
+
+  const noTools = createMcpRestrictor({ denyNamesFor: async () => ['x'], logger: { warn: () => {} } });
+  await noTools.apply({ id: 'no-tools', ctx: { get: () => undefined } });
+  await noTools.apply(undefined);
+  await noTools.apply(null);
+});
+
+test('apply：代际补偿 —— 读盘期间工具面变了就重算，而不是漏 deny', async () => {
+  let round = 0;
+  const calls = { restrict: [] };
+  const restrictor = createMcpRestrictor({
+    denyNamesFor: async () => {
+      round += 1;
+      if (round === 1) restrictor.noteChange(); // 模拟 await 期间 MCP 工具又注册进来
+      return ['mcp__comfy__generate'];
+    },
+    logger: { warn: () => {} },
+  });
+  const agent = { id: 'agent-1', ctx: { get: () => ({ restrict: ({ deny }) => { calls.restrict.push([...deny]); return () => {}; } }) } };
+
+  await restrictor.apply(agent);
+  assert.equal(round, 2, '代际变了必须重算一次');
+  assert.equal(calls.restrict.length, 1, '重算后只施加一次');
+});
+
+test('apply / disposeAll：失败只告警不抛，forget 后视为全新 agent', async () => {
+  const warn = [];
+  // denyNamesFor 抛错（例如 restrict 不认识的工具名）
+  const failing = createMcpRestrictor({ denyNamesFor: async () => { throw new Error('unknown global tool'); }, logger: { warn: (...a) => warn.push(a.join(' ')) } });
+  await failing.apply({ id: 'agent-x', ctx: { get: () => ({ restrict: () => () => {} }) } });
+  assert.match(warn.join('\n'), /MCP 屏蔽失败/);
+
+  // 撤销旧限制时 disposer 抛错
+  const boom = [];
+  let deny = ['a'];
+  const restrictor = createMcpRestrictor({
+    denyNamesFor: async () => deny,
+    logger: { warn: (...a) => boom.push(a.join(' ')) },
+  });
+  const agent = { id: 'agent-1', ctx: { get: () => ({ restrict: () => () => { throw new Error('dispose 爆炸'); } }) } };
+  await restrictor.apply(agent);
+  deny = ['b'];
+  await restrictor.apply(agent);
+  assert.match(boom.join('\n'), /撤销旧 MCP 限制失败/);
+
+  // 卸载：disposeAll 撤销全部，抛错同样只告警
+  restrictor.disposeAll();
+  assert.match(boom.join('\n'), /卸载时撤销 MCP 限制失败/);
+
+  // forget 清账：同一 id 再次 apply 视为首次
+  restrictor.forget('agent-1');
+  const calls = [];
+  const again = createMcpRestrictor({ denyNamesFor: async () => ['a'], logger: { warn: () => {} } });
+  await again.apply({ id: 'agent-1', ctx: { get: () => ({ restrict: ({ deny: list }) => { calls.push([...list]); return () => {}; } }) } });
+  again.forget('agent-1');
+  await again.apply({ id: 'agent-1', ctx: { get: () => ({ restrict: ({ deny: list }) => { calls.push([...list]); return () => {}; } }) } });
+  assert.equal(calls.length, 2, 'forget 之后应重新施加');
+});
+
+test('noteChange：推进代际让在途 apply 重算', async () => {
+  const { restrictor, agent, calls } = makeRestrictor();
+  restrictor.noteChange();
+  await restrictor.apply(agent);
+  assert.deepEqual(calls.restrict, [['mcp__comfy__generate']]);
 });
