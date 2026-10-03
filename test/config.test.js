@@ -31,7 +31,6 @@ import {
   withSkillState,
   withoutMcpEntry,
   withoutSkillState,
-  writeConfigFile,
 } from '../lib/config.js';
 
 test('全局配置路径与项目配置路径不重合', () => {
@@ -102,6 +101,12 @@ test('匹配优先级：精确名 > 最长通配符 > default', () => {
 
   assert.deepEqual(matchedKeyOf(effective, 'comfy-edit-image'), { key: 'comfy-edit*', state: 'manual' });
   assert.deepEqual(matchedKeyOf(effective, 'other'), { key: undefined, state: 'pinned' });
+
+  // 两个模式都命中且状态相同时，面板报的必须是**最长**（真正生效）的那个，而不是
+  // 插入序里第一个同态的 —— 后者会让面板显示"命中 a-*"，与实际生效的 a-b-* 不符。
+  const sameState = mergeConfig({ default: 'pinned', skills: { 'a-*': 'off', 'a-b-*': 'off' }, mcp: {} });
+  assert.equal(skillStateOf(sameState, 'a-b-c'), 'off');
+  assert.deepEqual(matchedKeyOf(sameState, 'a-b-c'), { key: 'a-b-*', state: 'off' });
 });
 
 test('两级合并：项目层逐键覆盖全局层，default 同理', () => {
@@ -206,18 +211,18 @@ test('读缺失/损坏文件都降级，损坏时带 error', async () => {
   }
 });
 
-test('原子写：并发写同一路径后文件是完整 JSON，且不留 tmp', async () => {
+test('原子写：并发读-改-写同一路径后文件是完整 JSON，且不留 tmp', async () => {
   const base = await mkdtemp(join(tmpdir(), 'wscope-write-'));
   try {
     const path = join(base, 'nested', 'skills-scope.json');
     const writes = [];
     for (let i = 0; i < 12; i += 1) {
-      writes.push(writeConfigFile(path, normalizeConfig({ skills: { [`skill-${i}`]: 'off' } })));
+      writes.push(updateConfigFile(path, (config) => withSkillState(config, `skill-${i}`, 'off')));
     }
     await Promise.all(writes);
     const parsed = JSON.parse(await readFile(path, 'utf8'));
     assert.equal(parsed.version, 1);
-    assert.equal(Object.keys(parsed.skills).length, 1);
+    assert.equal(Object.keys(parsed.skills).length, 12, '串行链内的 12 次读-改-写一个都不能丢');
     const { readdir } = await import('node:fs/promises');
     assert.deepEqual((await readdir(join(base, 'nested'))).filter((name) => name.includes('.tmp-')), []);
   } finally {

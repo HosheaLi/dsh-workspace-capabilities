@@ -139,6 +139,9 @@ function collectText(node, out = []) {
     return out;
   }
   if (node === null || node === undefined || typeof node !== 'object') return out;
+  // 替身 React 不渲染函数组件，这里补上：settings 一节的子组件（ScopeHeader / SkillTable /
+  // SkillRow / McpSection / TriState）都不含 hook，可以在收集阶段安全展开。
+  if (typeof node.type === 'function') return collectText(node.type(node.props), out);
   for (const child of node.children ?? []) collectText(child, out);
   return out;
 }
@@ -146,6 +149,7 @@ function collectText(node, out = []) {
 /** 收集树里所有 grid 容器的列模板，用于检查表格列定义。 */
 function collectGridTemplates(node, out = []) {
   if (node === null || node === undefined || typeof node !== 'object') return out;
+  if (typeof node.type === 'function') return collectGridTemplates(node.type(node.props), out);
   const template = node.props?.style?.gridTemplateColumns;
   if (typeof template === 'string') out.push(template);
   for (const child of node.children ?? []) collectGridTemplates(child, out);
@@ -159,6 +163,94 @@ test('state 未到达时也能渲染：不得抛错（回归：首帧裸访问 s
   const text = collectText(tree).join(' ');
   assert.match(text, /工作区能力/, '首帧应已渲染分区标题');
   assert.match(text, /正在读取配置来源/, '首帧应显示占位而不是崩溃');
+});
+
+/**
+ * 加载 bundle 并取出 `conversation.input.right` 注册的组件（composer 的 `/技能` 按钮）。
+ * @returns 组件函数与替身 React 的 render 入口。
+ */
+async function mountButton() {
+  const react = createReact();
+  let bundle;
+
+  globalThis.window = {
+    innerHeight: 800,
+    localStorage: { getItem: () => null, setItem: () => {} },
+    requestAnimationFrame: (fn) => fn(),
+    __ModuleLoader__: { load: (entry) => { bundle = entry; } },
+  };
+  globalThis.document = { addEventListener: () => {}, removeEventListener: () => {} };
+  globalThis.fetch = async (_url, init) => {
+    const { method } = JSON.parse(init.body);
+    const value = method === 'workspaces'
+      ? { workspaces: [{ id: 'w1', title: 'demo', path: '/p' }] }
+      : { skills: [{ name: 'alpha', description: '第一个技能', state: 'manual' }] };
+    return { status: 200, json: async () => ({ ok: true, value }) };
+  };
+
+  await import(`${pathToFileURL(CLIENT_PATH.pathname).href}?t=${++loadSeq}`);
+  assert.ok(bundle !== undefined, 'bundle 必须调用 window.__ModuleLoader__.load');
+
+  const registered = {};
+  const ctx = {
+    effect: (fn) => fn(),
+    slots: {
+      inject: (_name, cb) => cb(),
+      register: (options, Component) => {
+        registered[options.name] = { options, Component };
+        return () => {};
+      },
+    },
+  };
+  bundle.factory((name) => {
+    if (name === 'react') return react.api;
+    throw new Error(`bundle 不允许 require 平台种子之外的模块：${name}`);
+  }).apply(ctx);
+
+  const button = registered['conversation.input.right'];
+  assert.ok(button !== undefined, 'apply 必须注册 conversation.input.right');
+  return { Component: button.Component, react };
+}
+
+/** 收集树里的 element 节点（不展开函数组件，避免重复执行带 hook 的组件）。 */
+function collectElements(node, out = []) {
+  if (node === null || node === undefined || typeof node !== 'object') return out;
+  out.push(node);
+  for (const child of node.children ?? []) collectElements(child, out);
+  return out;
+}
+
+test('composer 按钮：关闭态只渲染按钮，点开后渲染浮层并拉取候选', async () => {
+  const { Component, react } = await mountButton();
+  // props 契约与真实宿主一致：session/输入能力来自 session 级 provide，不是 ownerProps。
+  const props = {
+    sessionId: 'ses-1',
+    useSessions: () => '/p',
+    useInput: () => ({ draft: '草稿' }),
+    inputActions: { setDraft: () => {} },
+  };
+
+  const first = react.render(Component, props);
+  assert.match(collectText(first.tree).join(' '), /技能/, '关闭态应渲染 /技能 按钮');
+  assert.doesNotMatch(collectText(first.tree).join(' '), /加载中/, '关闭态不该渲染浮层');
+
+  // 点开：ScopeIconButton 的 onClick 就是 toggle。
+  const icon = collectElements(first.tree).find((node) => node.props?.title === '插入 /技能名');
+  assert.ok(icon !== undefined, '应渲染 /技能 图标按钮');
+  icon.props.onClick();
+
+  // 第二帧：浮层出现，effect 触发加载。
+  const second = react.render(Component, props);
+  assert.match(collectText(second.tree).join(' '), /加载中/, '打开后先显示加载态');
+  for (const effect of second.effects) effect();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  // 第三帧：候选取回，manual 技能带"仅手动"标记。
+  const third = react.render(Component, props);
+  const text = collectText(third.tree).join(' ');
+  assert.match(text, /\/alpha/, '候选应列出技能名');
+  assert.match(text, /仅手动/, 'manual 技能应带"仅手动"标记');
+  assert.match(text, /第一个技能/, '候选应带描述');
 });
 
 test('state 到达后渲染完整面板：项目根/写入层/MCP 分区齐备', async () => {

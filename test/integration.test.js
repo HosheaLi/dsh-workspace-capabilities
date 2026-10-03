@@ -23,6 +23,20 @@ import * as plugin from '../lib/index.js';
 
 const RUNTIME = process.env.DSH_RUNTIME_DIR ?? '/tmp/dshref/runtime';
 
+/** 解包运行时是否可用。缺它时集成用例整体 skip，而不是让 `npm test` 直接变红。 */
+const RUNTIME_READY = existsSync(join(RUNTIME, 'node_modules', '@deepseek-ai', 'cordis', 'lib', 'index.js'));
+const SKIP_REASON = `缺少解包运行时：${RUNTIME}（先从 app.asar 解出 dsh 到该目录，或设置 DSH_RUNTIME_DIR）`;
+
+/**
+ * 集成用例入口。
+ * @param name - 用例名。
+ * @param fn - 用例体。
+ * @param options - node:test 选项（如 `{ projects }`）。
+ */
+function integrationTest(name, fn, options = {}) {
+  return test(name, { skip: RUNTIME_READY ? false : SKIP_REASON, ...options }, fn);
+}
+
 /** 从解包运行时里按绝对路径 import（项目里没有 node_modules，绕开包 exports 更直接）。 */
 async function load(pkg, rel = 'lib/index.js') {
   const path = join(RUNTIME, 'node_modules', pkg, rel);
@@ -207,7 +221,7 @@ async function withEnv(run, { projects = ['project'] } = {}) {
   }
 }
 
-test('manual：模型不可见但 /名 可加载，且正文与官方规则一致', async () => {
+integrationTest('manual：模型不可见但 /名 可加载，且正文与官方规则一致', async () => {
   await withEnv(async ({ dshHome, customDir, dirs }) => {
     await writeSkill(join(dshHome, 'skills'), 'user-skill', { body: '用户级正文' });
     await writeSkill(join(customDir), 'custom-skill', { body: '自定义目录正文' });
@@ -235,7 +249,7 @@ test('manual：模型不可见但 /名 可加载，且正文与官方规则一�
   });
 });
 
-test('off：两条调用路径都关掉', async () => {
+integrationTest('off：两条调用路径都关掉', async () => {
   await withEnv(async ({ dshHome, customDir, dirs }) => {
     await writeSkill(join(dshHome, 'skills'), 'noisy-skill');
     await writeJson(join(dirs.project, '.dsh', 'skills-scope.json'), { version: 1, default: 'pinned', skills: { 'noisy-skill': 'off' }, mcp: {} });
@@ -251,7 +265,7 @@ test('off：两条调用路径都关掉', async () => {
   });
 });
 
-test('通配符 > default，精确名 > 通配符', async () => {
+integrationTest('通配符 > default，精确名 > 通配符', async () => {
   await withEnv(async ({ dshHome, customDir, dirs }) => {
     for (const name of ['comfy-image', 'comfy-edit', 'writing-for-agents', 'other']) {
       await writeSkill(join(dshHome, 'skills'), name);
@@ -278,7 +292,7 @@ test('通配符 > default，精确名 > 通配符', async () => {
   });
 });
 
-test('能力边界：runtime / bundled 来源不被接管', async () => {
+integrationTest('能力边界：runtime / bundled 来源不被接管', async () => {
   await withEnv(async ({ dshHome, customDir, dirs }) => {
     await writeSkill(join(customDir), 'custom-skill');
     await writeJson(join(dirs.project, '.dsh', 'skills-scope.json'), { version: 1, default: 'manual', skills: {}, mcp: {} });
@@ -298,7 +312,7 @@ test('能力边界：runtime / bundled 来源不被接管', async () => {
   });
 });
 
-test('两级配置互不污染：home 目录不是项目层', async () => {
+integrationTest('两级配置互不污染：home 目录不是项目层', async () => {
   await withEnv(async ({ dshHome, customDir, dirs }) => {
     await writeSkill(join(dshHome, 'skills'), 'global-manual');
     await writeSkill(join(dshHome, 'skills'), 'project-manual');
@@ -319,7 +333,7 @@ test('两级配置互不污染：home 目录不是项目层', async () => {
   });
 });
 
-test('MCP：按工作区 deny，重连（迟到注册）后仍被 deny，反复切换不卡死', async () => {
+integrationTest('MCP：按工作区 deny，重连（迟到注册）后仍被 deny，反复切换不卡死', async () => {
   await withEnv(async ({ dshHome, customDir, dirs }) => {
     await writeJson(join(dirs.project, '.dsh', 'skills-scope.json'), {
       version: 1,
@@ -370,7 +384,7 @@ test('MCP：按工作区 deny，重连（迟到注册）后仍被 deny，反复�
   });
 }, { projects: ['project', 'other'] });
 
-test('面板 RPC：state / setSkill 写盘即时生效，无需重启或新开会话', async () => {
+integrationTest('面板 RPC：state / setSkill 写盘即时生效，无需重启或新开会话', async () => {
   await withEnv(async ({ dshHome, customDir, dirs }) => {
     await writeSkill(join(dshHome, 'skills'), 'toggle-skill');
 
@@ -413,7 +427,7 @@ test('面板 RPC：state / setSkill 写盘即时生效，无需重启或新开�
   });
 });
 
-test('面板 RPC 必须逐请求过 Connection 栅栏：无凭据返回 401，且不写盘', async () => {
+integrationTest('面板 RPC 必须逐请求过 Connection 栅栏：无凭据返回 401，且不写盘', async () => {
   await withEnv(async ({ dshHome, customDir, dirs }) => {
     await writeSkill(join(dshHome, 'skills'), 'guarded-skill');
     const harness = await makeHarness({ dshHome, customDir, projects: [{ id: 'ses-a', dir: dirs.project }] });
@@ -436,7 +450,7 @@ test('面板 RPC 必须逐请求过 Connection 栅栏：无凭据返回 401，�
   });
 });
 
-test('写项目层不物化 default：全局的 manual 不会被一次技能开关顶掉', async () => {
+integrationTest('写项目层不物化 default：全局的 manual 不会被一次技能开关顶掉', async () => {
   await withEnv(async ({ dshHome, customDir, dirs }) => {
     await writeSkill(join(dshHome, 'skills'), 'keep-manual');
     await writeSkill(join(dshHome, 'skills'), 'set-off');
@@ -461,7 +475,7 @@ test('写项目层不物化 default：全局的 manual 不会被一次技能开�
   });
 });
 
-test('两次并发写入都落盘：读-改-写在串行链内完成，不丢更新', async () => {
+integrationTest('两次并发写入都落盘：读-改-写在串行链内完成，不丢更新', async () => {
   await withEnv(async ({ dshHome, customDir, dirs }) => {
     await writeSkill(join(dshHome, 'skills'), 'first-skill');
     await writeSkill(join(dshHome, 'skills'), 'second-skill');
@@ -483,7 +497,7 @@ test('两次并发写入都落盘：读-改-写在串行链内完成，不丢更
   });
 });
 
-test('项目配置损坏时拒绝写入：报错而不是拿空配置覆盖用户文件', async () => {
+integrationTest('项目配置损坏时拒绝写入：报错而不是拿空配置覆盖用户文件', async () => {
   await withEnv(async ({ dshHome, customDir, dirs }) => {
     await writeSkill(join(dshHome, 'skills'), 'some-skill');
     const path = join(dirs.project, '.dsh', 'skills-scope.json');
@@ -500,6 +514,84 @@ test('项目配置损坏时拒绝写入：报错而不是拿空配置覆盖用�
       const state = await harness.callRpc('state', { cwd: dirs.project });
       assert.equal(state.ok, true);
       assert.match(state.value.scope.readError ?? '', /JSON 解析失败/);
+    } finally {
+      await harness.dispose();
+    }
+  });
+});
+
+integrationTest('并发枚举不得漏降级：同 cwd 的每个调用者都要拿到 manual 语义', async () => {
+  // 回归：哨兵原先按 cwd 记名，把"两个独立调用者的并发枚举"当成重入，后来者拿到空候选
+  // → 未降级目录 → manual 技能在该步重新进入 <available_skills>（`agent/pre-step` 正是
+  // 用 `skills.snapshot()` + `isModelInvocable` 构建模型目录）。
+  await withEnv(async ({ dshHome, customDir, dirs }) => {
+    await writeSkill(join(dshHome, 'skills'), 'secret-skill');
+    await writeJson(join(dirs.project, '.dsh', 'skills-scope.json'), { version: 1, default: 'pinned', skills: { 'secret-skill': 'manual' }, mcp: {} });
+
+    const harness = await makeHarness({ dshHome, customDir, projects: [{ id: 'ses-a', dir: dirs.project }] });
+    try {
+      const skills = harness.skillsOf();
+      const agent = harness.bound[0].agent;
+      for (let round = 0; round < 10; round += 1) {
+        skills.invalidateCache?.();
+        const snapshots = await Promise.all(
+          Array.from({ length: 4 }, () => skills.snapshot({ cwd: dirs.project, scope: agent })),
+        );
+        for (const snapshot of snapshots) {
+          const row = snapshot.skills.find((skill) => skill.name === 'secret-skill');
+          assert.ok(row !== undefined, 'manual 技能仍应在目录里（供 / 菜单与面板使用）');
+          assert.equal(
+            row.invocation.modelInvocable,
+            false,
+            `第 ${round} 轮并发枚举漏了降级：${JSON.stringify(row.invocation)}`,
+          );
+        }
+      }
+    } finally {
+      await harness.dispose();
+    }
+  });
+});
+
+integrationTest('没有 live agent 的工作区：不得借用别处的技能目录，并如实标记降级', async () => {
+  // 回归：`?? usable[0]` 会把别的工作区的 agent 视图当成所选工作区的目录返回，且报
+  // via='agent'、incomplete=false、无提示。
+  await withEnv(async ({ dshHome, customDir, dirs }) => {
+    await writeSkill(join(dirs.project, '.dsh', 'skills'), 'proj-only');
+
+    const harness = await makeHarness({ dshHome, customDir, projects: [{ id: 'ses-a', dir: dirs.project }] });
+    try {
+      const stray = join(dirs.project, '..', 'stray');
+      await mkdir(join(stray, '.git'), { recursive: true });
+
+      const state = await harness.callRpc('state', { cwd: stray });
+      assert.equal(state.ok, true, JSON.stringify(state));
+      assert.equal(state.value.scope.cwd, stray, '返回的 cwd 必须是请求的那个工作区');
+      assert.equal(
+        state.value.skills.some((skill) => skill.name === 'proj-only'),
+        false,
+        '不得把别的 agent 的目录挂在当前工作区名下',
+      );
+      assert.equal(state.value.catalog.incomplete, true, '拿不到 agent 视图时必须标记 incomplete');
+      assert.notEqual(state.value.catalog.notice, undefined, '降级视图必须给出提示');
+    } finally {
+      await harness.dispose();
+    }
+  });
+});
+
+integrationTest('cwd 不存在时拒绝，且不得在虚构路径上建目录写盘', async () => {
+  // 回归：`projectRoot === undefined` 这个校验永不成立，不存在的 cwd 会被当成合法工作区，
+  // 随后在虚构路径上 `mkdir -p` 出配置文件。
+  await withEnv(async ({ dshHome, customDir, dirs }) => {
+    const harness = await makeHarness({ dshHome, customDir, projects: [{ id: 'ses-a', dir: dirs.project }] });
+    try {
+      const ghost = join(dirs.project, '..', 'ghost-not-here');
+      const denied = await harness.callRpc('setSkill', { cwd: ghost, name: 'ghost-skill', state: 'off' });
+      assert.equal(denied.ok, false, '不存在的 cwd 必须被拒绝');
+      assert.match(denied.error, /不存在|不是目录/);
+      assert.equal(existsSync(join(ghost, '.dsh', 'skills-scope.json')), false, '不得在虚构路径上写盘');
+      assert.equal(existsSync(ghost), false, '不得创建该目录本身');
     } finally {
       await harness.dispose();
     }
