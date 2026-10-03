@@ -31,7 +31,9 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "node --test \"test/**/*.test.js\""
+    "test": "node --test \"test/**/*.test.js\"",
+    "test:unit": "node --test test/config.test.js test/rpc.test.js test/client.test.js test/render.test.js test/catalog.test.js test/policy.test.js",
+    "test:integration": "node --test test/integration.test.js"
   },
   "license": "MIT",
   "private": true
