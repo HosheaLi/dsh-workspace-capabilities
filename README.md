@@ -98,7 +98,7 @@
 ## 开发与测试
 
 ```bash
-# 单元测试（纯 JS，无宿主依赖）—— test/config.test.js / test/rpc.test.js / test/client.test.js
+# 单元测试（纯 JS，无宿主依赖）—— test/config.test.js / test/rpc.test.js / test/client.test.js / test/render.test.js
 npm test
 
 # 集成测试：在真实的 0.2.0-rc.2 运行时上跑

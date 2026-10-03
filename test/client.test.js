@@ -4,12 +4,16 @@
  * 浏览器里 `react` 是宿主种子、模块由 `window.__ModuleLoader__` 装载，所以这里用一个
  * 最小的 React 替身跑 factory，验证：bundle 形状正确、导出的 apply/inject 可用、
  * 两个 slot 都按官方写法（`slots.inject` + `slots.register`）注册、以及插入 `/名 ` 的
- * 纯逻辑。组件体不在 factory 期执行，替身只用来让模块求值通过。
+ * 纯逻辑。组件体不在 factory 期执行，替身只用来让模块求值通过；组件**真正渲染**时的
+ * 契约（首帧不得抛错、数据到达后的面板内容）由 `test/render.test.js` 覆盖。
  */
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
+
+/** 单调计数器：`Date.now()` 同毫秒会撞上 ESM 模块缓存，缓存命中的 factory 不再执行。 */
+let loadSeq = 0;
 
 /** 让模块在 node 里可加载：捕获 `window.__ModuleLoader__.load` 的入参。 */
 async function loadBundle() {
@@ -21,7 +25,7 @@ async function loadBundle() {
       },
     },
   };
-  await import(`${pathToFileURL(new URL('../lib/client.js', import.meta.url).pathname).href}?t=${Date.now()}`);
+  await import(`${pathToFileURL(new URL('../lib/client.js', import.meta.url).pathname).href}?t=${++loadSeq}`);
   assert.ok(captured !== undefined, 'bundle 必须调用 window.__ModuleLoader__.load');
   assert.equal(captured.id, 'dsh-workspace-scope');
 
