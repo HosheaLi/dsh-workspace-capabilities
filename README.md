@@ -102,7 +102,7 @@
 # 所以新克隆直接 npm test 不会变红（输出里的 skipped 数会告诉你跳过了几条）。
 npm test
 
-# 只跑纯 JS 单测（无宿主依赖）—— test/config.test.js / rpc.test.js / client.test.js / render.test.js / catalog.test.js / policy.test.js
+# 只跑纯 JS 单测（无宿主依赖）—— test/config.test.js / rpc.test.js / client.test.js / render.test.js / catalog.test.js / policy.test.js / mcp.test.js
 npm run test:unit
 
 # 只跑集成测试：在真实的 0.2.0-rc.2 运行时上跑
