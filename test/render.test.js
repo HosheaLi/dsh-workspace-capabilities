@@ -67,9 +67,21 @@ const MIN_STATE = {
   defaultState: 'pinned',
   workspaces: [{ id: 'w1', title: 'demo', path: '/Users/example/code/demo' }],
   catalog: { via: 'preset', incomplete: false, sourceLabels: {} },
-  skills: [],
+  skills: [
+    {
+      name: 'demo-skill',
+      description: '这是一个用来验证描述列会真的渲染出来的技能说明。',
+      source: 'user-agents',
+      sourceLabel: '~/.agents/skills',
+      invocation: { modelInvocable: true, userInvocable: true },
+      path: '/Users/example/.agents/skills/demo-skill/SKILL.md',
+      manageable: true,
+      size: 1024,
+      state: 'pinned',
+    },
+  ],
   mcp: [],
-  totals: { total: 0, hidden: 0, off: 0, unmanageable: 0 },
+  totals: { total: 1, hidden: 0, off: 0, unmanageable: 0 },
 };
 
 /**
@@ -131,6 +143,15 @@ function collectText(node, out = []) {
   return out;
 }
 
+/** 收集树里所有 grid 容器的列模板，用于检查表格列定义。 */
+function collectGridTemplates(node, out = []) {
+  if (node === null || node === undefined || typeof node !== 'object') return out;
+  const template = node.props?.style?.gridTemplateColumns;
+  if (typeof template === 'string') out.push(template);
+  for (const child of node.children ?? []) collectGridTemplates(child, out);
+  return out;
+}
+
 test('state 未到达时也能渲染：不得抛错（回归：首帧裸访问 state.scope）', async () => {
   const { Component, react } = await mountSection();
   const { tree } = react.render(Component, { close: () => {} });
@@ -150,5 +171,15 @@ test('state 到达后渲染完整面板：项目根/写入层/MCP 分区齐备',
   const text = collectText(tree).join(' ');
   assert.match(text, /写入全局层/, '应显示配置写入层');
   assert.match(text, /MCP 服务器/, '应渲染 MCP 分区');
-  assert.match(text, /共 0 个技能/, '应渲染总数统计');
+  assert.match(text, /共 1 个技能/, '应渲染总数统计');
+
+  // 回归：列模板原来把描述列写成裸 `1fr`，而描述单元格带 overflow:hidden（自动最小
+  // 尺寸为 0），面板不够宽时它被压成 0 宽、内容被裁光 —— 整个描述列空白。
+  const templates = collectGridTemplates(tree);
+  assert.ok(templates.length >= 2, '表格应有表头行与数据行');
+  for (const template of templates) {
+    assert.match(template, /minmax\(126px/, '描述列必须带宽度下限，否则会被压成 0 宽');
+  }
+  assert.equal(new Set(templates).size, 1, '表头与数据行必须共用同一套列模板，否则会列错位');
+  assert.match(text, /这是一个用来验证描述列会真的渲染出来的技能说明/, '描述必须真的渲染进树里');
 });
