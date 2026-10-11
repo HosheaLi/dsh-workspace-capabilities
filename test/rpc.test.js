@@ -496,3 +496,65 @@ test('createRpcMethods：setSkills 一次原子写盘、跳过不可管理/无�
     await rm(env.base, { recursive: true, force: true });
   }
 });
+
+test('createRpcMethods：精确键在另一层时不做"假成功"的清除', async () => {
+  const env = await makeHostEnv();
+  const projectConfig = join(env.project, '.dsh', 'skills-scope.json');
+  try {
+    // 全局层有 demo=off；项目层（有 .git）连配置文件都还没有
+    await writeFile(join(env.home, 'settings', 'skills-scope.json'), JSON.stringify({ version: 1, skills: { demo: 'off' }, mcp: {} }), 'utf8');
+    const rows = [{ name: 'demo', description: 'd', source: 'custom', path: '/x/demo/SKILL.md', invocation: { modelInvocable: true, userInvocable: true } }];
+    const { methods } = makeMethods({ home: env.home, agents: [viewAgent(env.project, rows)] });
+
+    const before = await methods.state({ cwd: env.project });
+    assert.equal(before.skills[0].state, 'off', '生效态来自全局层');
+    assert.equal(before.skills[0].matchedKey, 'demo', '命中的是精确键');
+    assert.equal(before.skills[0].fallbackState, undefined, '键不在写入层（项目层）→ 面板不该给"删除显式配置"');
+
+    // 单条清除：不写盘、不新建项目层配置文件
+    const cleared = await methods.setSkill({ cwd: env.project, name: 'demo', state: 'default' });
+    assert.equal(cleared.noop, true, '跨层清除必须报 noop，而不是假装删掉了');
+    assert.equal(cleared.path, undefined);
+    await assert.rejects(() => readFile(projectConfig, 'utf8'), /ENOENT/, '绝不能凭空建出空的项目层配置');
+
+    // 批量清除：跳过并给出可读原因
+    const batch = await methods.setSkills({ cwd: env.project, names: ['demo'], state: 'default' });
+    assert.equal(batch.noop, true);
+    assert.deepEqual(batch.applied, []);
+    assert.deepEqual(batch.skipped.map((item) => item.name), ['demo']);
+    assert.match(batch.skipped[0].reason, /不在写入层/);
+    await assert.rejects(() => readFile(projectConfig, 'utf8'), /ENOENT/);
+
+    // 对照：键一旦落在项目层，清除照样生效，且回落态按两层合并算
+    await methods.setSkill({ cwd: env.project, name: 'demo', state: 'manual' });
+    const mixed = await methods.state({ cwd: env.project });
+    assert.equal(mixed.skills[0].state, 'manual', '项目层近，赢过全局层');
+    assert.equal(mixed.skills[0].fallbackState, 'off', '删掉项目层的键后回落到全局层的 off');
+    const real = await methods.setSkills({ cwd: env.project, names: ['demo'], state: 'default' });
+    assert.deepEqual(real.applied, ['demo']);
+    assert.equal((await methods.state({ cwd: env.project })).skills[0].state, 'off', '清除后确实改变生效状态');
+  } finally {
+    await rm(env.base, { recursive: true, force: true });
+  }
+});
+
+test('createRpcMethods：并发 setSkills 不丢更新', async () => {
+  const env = await makeHostEnv();
+  try {
+    const configPath = join(env.project, '.dsh', 'skills-scope.json');
+    const rows = [
+      { name: 'alpha', description: 'a', source: 'custom', path: '/x/a/SKILL.md', invocation: { modelInvocable: true, userInvocable: true } },
+      { name: 'beta', description: 'b', source: 'custom', path: '/x/b/SKILL.md', invocation: { modelInvocable: true, userInvocable: true } },
+    ];
+    const { methods } = makeMethods({ home: env.home, agents: [viewAgent(env.project, rows)] });
+
+    // 两次写并发发出：读-改-写整条链在 config 的按路径串行队列里，两边的键都必须留下
+    await Promise.all([
+      methods.setSkills({ cwd: env.project, names: ['alpha'], state: 'off' }),
+      methods.setSkills({ cwd: env.project, names: ['beta'], state: 'manual' }),
+    ]);
+    assert.deepEqual(JSON.parse(await readFile(configPath, 'utf8')).skills, { alpha: 'off', beta: 'manual' });
+  } finally {
+    await rm(env.base, { recursive: true, force: true });
+  }
+});

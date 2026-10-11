@@ -328,6 +328,14 @@ test('面板纯逻辑：分组、体量估算与批量增量', async () => {
     '不可管理 · 包内置:1',
   ]);
   assert.deepEqual(logic.groupRows([]), []);
+  // 两个不同的未知来源会共享同一个显示名：分组 key 必须按序号生成，否则 React key 会撞
+  const sameLabel = logic.groupRows([
+    { name: 'a', manageable: true, sourceLabel: '未知来源' },
+    { name: 'b', manageable: true, sourceLabel: '项目 .dsh/skills' },
+    { name: 'c', manageable: true, sourceLabel: '未知来源' },
+  ]);
+  assert.deepEqual(sameLabel.map((group) => group.key), ['group-0', 'group-1', 'group-2']);
+  assert.deepEqual(sameLabel.map((group) => group.label), ['可管理 · 未知来源', '可管理 · 项目 .dsh/skills', '可管理 · 未知来源']);
 
   // 批量增量：只统计选中行，default 用 fallbackState 推算落点
   const skills = [
@@ -558,6 +566,45 @@ test('设置面板：批量写盘后按回执显示已改/跳过/noop', async ()
   findElement(view(), (element) => element.type === 'button' && labelOf(element) === '应用').props.onClick();
   await flush();
   assert.match(collectText(view()).join(' '), /已经是目标状态，未写盘/, 'no-op 要说清楚没有写盘');
+
+  // 全部被跳过：绝不能说成"已经是目标状态"，那会和紧随其后的跳过明细自相矛盾
+  setSkillsReply.value = { layer: 'project', applied: [], skipped: [{ name: 'exact-skill', reason: '显式配置不在写入层（项目层）' }], noop: true };
+  selectFirst();
+  await flush();
+  findElement(view(), (element) => element.type === 'button' && labelOf(element) === '应用').props.onClick();
+  await flush();
+  const skippedText = collectText(view()).join(' ');
+  assert.match(skippedText, /未做任何改动；跳过 1 项/);
+  assert.doesNotMatch(skippedText, /已经是目标状态/, '两种 noop 的文案必须分开');
+});
+
+test('设置面板：描述单元格 2 行截断，来源排在描述末尾', async () => {
+  const { view } = await mountSectionAndWait({ state: INTERACTIVE_STATE });
+  const tree = view();
+  const description = findElement(tree, (element) => element.props?.title === '有精确配置');
+  assert.equal(description.props.style.display, '-webkit-box');
+  assert.equal(description.props.style.WebkitBoxOrient, 'vertical');
+  assert.equal(description.props.style.WebkitLineClamp, 2, '描述必须给 2 行，否则等于把腾出来的宽度又还回去');
+
+  const cell = collectElementsDeep(tree).find((element) =>
+    Array.isArray(element.children) && element.children.some((child) => child?.props?.title === '有精确配置'));
+  assert.ok(cell !== undefined, '描述必须有一个包裹单元格');
+  assert.equal(cell.children[0].props.title, '有精确配置', '描述在前');
+  assert.equal(collectText(cell.children.at(-1)).join(''), '自定义目录', '来源标签在单元格末尾');
+});
+
+test('设置面板：单行状态下拉写盘后也清空勾选', async () => {
+  const { view } = await mountSectionAndWait({ state: INTERACTIVE_STATE });
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 20));
+  findElement(view(), (element) => element.type === 'input' && element.props['aria-label'] === '选择技能 exact-skill')
+    .props.onChange({ target: { checked: true } });
+  await flush();
+  assert.match(collectText(view()).join(' '), /已选 1 项/);
+
+  findElement(view(), (element) => element.type === 'select' && element.props['aria-label'] === '技能 exact-skill 的注入状态')
+    .props.onChange({ target: { value: 'off' } });
+  await flush();
+  assert.doesNotMatch(collectText(view()).join(' '), /已选 \d+ 项/, '单行写盘成功后同样要清空勾选（与批量同一条出口）');
 });
 
 test('设置面板：批量条按 inCatalog/catalogChars 估算目录增量', async () => {
