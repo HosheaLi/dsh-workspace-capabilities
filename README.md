@@ -46,10 +46,50 @@
 
 | 位置 | 内容 |
 | --- | --- |
-| 设置 → **工作区能力** | 工作区选择、技能表格（名称/描述/来源/三态开关/可管理标记/正文体积/命中来源）、搜索、只看非默认项、默认状态、MCP 服务器开关（含"可见 x/y"核对）、当前项目根与配置来源 |
+| 设置 → **工作区能力** | 工作区选择、技能表格（勾选框 / 名称 / 描述 / 状态下拉，按"可管理 + 来源"分组）、批量条、搜索、只看非默认项、默认状态、MCP 服务器开关（含"可见 x/y"核对）、当前项目根与配置来源、目录体量估算 |
 | 输入框右侧 **`/技能`** 按钮 | 搜索 + 点选 → 插入 `/技能名 ` 到输入框并回焦 |
 
+**状态列是原生下拉**：自动注入 / 仅手动 / 关闭；该行有精确配置键（`matchedKey === name`）时多一项「**删除显式配置（→ 回落态）**」——回落态由 host 算好，标注删掉这个键之后实际会落到哪一态；不可管理行整列禁用。
+
+**最左是勾选列 + 批量条**：表头勾选框 = 全选 / 取消全选**当前筛选结果里的可管理行**（一个可管理行都没有时禁用），不可管理行的勾选框禁用（title 写原因）。勾选集**跨搜索/筛选保留**，但切换工作区与写盘成功后清空——避免"看不见的选中项"被批量改掉。批量条只在有选中项时出现：
+
+```text
+已选 3 项（当前筛选 31 项） 设为 [自动注入 ▾] [应用] [恢复默认] [清除选择] ｜ 本次：目录 -1.7k 字符 ｜ 目录变化会在会话里追加 1 份完整目录
+```
+
+批量走**一次**原子 RPC `setSkills({ cwd, names, state })`——N 个名字一次读-改-写、一次缓存失效（为什么要批量见下节：N 次单条写盘一旦跨过模型步，就会变成 N 份目录）。不可管理、当前目录里不存在、`default` 却没有可清除精确键的行会被跳过并**逐条回报原因**，已经是目标值的行直接略过；全部都没变化时返回 `noop` 且**根本不写盘**。写盘后回执形如「已改 N 项；跳过 M 项：名字（原因）」，no-op 时是「所选技能已经是目标状态，未写盘」。
+
+**描述列 2 行截断**（`-webkit-line-clamp: 2`，`title` 保留全文）——腾出的宽度来自状态列（3 个按钮 + 清除按钮 → 1 个下拉）；**来源不再单占一列**，作为描述单元格末尾的标签（`flex: 0 0 auto`，不参与压缩）并由分组表头共同承担。技能单元格第二行则是 `显式配置 · 1.2 KB` 这样的元信息（配置命中方式 + 正文体积）。**不可管理行也能看到自己的描述**：以前描述列渲染的是 `reason`，把描述顶掉了；现在 `reason` 挂在"不可管理"徽标的 tooltip 上，"未生效?"徽标同在技能名旁。
+
+**排序三层**（`compareCatalogRows`，在 host 侧排好，面板与 `/技能` 浮层共用同一顺序）：可管理优先 → 来源（`project-dsh` → `project-agents` → `custom` → `user-dsh` → `user-agents` → `bundled` → `runtime`，未知/空来源最后）→ 名称。前五个来源的顺序与 `dsh-skill-filesystem` 的 `*_RANK` 完全一致，所以**面板顺序 = 同名冲突时的真实优先级**；表格按 `(可管理, 来源)` 插入分组表头（如 `可管理 · 项目 .dsh/skills（3）`），空分组不渲染。
+
 面板的**状态列一律以本插件配置文件为准**，不拿注册表返回的 invocation 反推：冷读路径用的是 preset 作用域，看不到 agent 层的降级，会把 `manual`/`off` 显示成启用态。invocation 只作交叉核对——配置说"不该自动注入"而注册表仍显示可被模型调用时，该行会给一个"未生效?"标记。
+
+## 改配置对进行中的会话意味着什么
+
+一句话：**立即生效，但每次目录变化都会在会话里永久追加一份完整目录——所以批量改，别反复横跳。**
+
+技能目录不是系统提示词的一部分，而是会话里一条普通的 durable **user 消息**：`dsh-tool-skill` 的 `agent/pre-step` 中间件在**每一个模型步**重算注册表快照的 digest（`dsh-agent-loop` 在**一个 turn 内每个 step 都调 `preStep()`**，不是每轮对话一次）。
+
+| 你做了什么 | 会话里发生什么 |
+| --- | --- |
+| 写盘了但目录内容没变 | **完全静默**，零成本 |
+| 目录内容变了 | **追加**一条带全量 `<available_skills>` 的替代消息（`renderCatalogUpdate`，不是就地替换、不是差量） |
+| 关掉某技能又打开 | 算**两次**变化 → 两次追加 |
+
+- **成本**：改 k 次 ≈ 该会话永久多 k 份目录，每份都是全量。本机 31 条技能目录约 **4.5k 字符/份**（≈1.2k token；中文占比重时上限约 2.6k，估算值）。探针实测（3 个技能）：首次发布 780 字符，变化后的 update 612 字符；4 次目录变化后会话里累计 4 条目录消息——目录消息只增不减，直到压缩（compaction）动到它（探针打印的「累计 1971 字符」对应其中前 3 条）。
+- **生效时机**：下一个模型步——**同一回合里继续调工具的那一步也算**；不需要重启 App、不需要重开会话（与"改 `cordis.patch.yml` 要重启"是两回事）。
+- **调用路径是现查的**：`skill` 工具与 `/技能名` 手势都在调用那一刻读注册表，所以 `off` 立即失效、`manual` 仍可 `/技能名`。
+- **不回收历史**：已经进过上下文的技能正文留在历史里，标成 `off` 只是让**以后**不再加载；旧目录消息也不会被删除。
+- **一次性代价**：目录消息位置靠前，一次变化就会打断一次前缀缓存（prompt cache）。
+
+这些代价在面板上是可见的：工具栏常驻 `目录 ≈ 4.5k 字符 / 31 条`（字符数按宿主渲染规则估算，token 换算只放在 tooltip 里）、批量条给出本次动作的 Δ（`目录 -1.7k 字符` / `目录大小不变`）并注明会追加 1 份完整目录、头部常驻一行「改动立即生效……每次目录变化会在每个受影响会话里追加一份完整目录」。要自己复核机制，跑仓库里的探针：
+
+```bash
+DSH_RUNTIME_DIR=/tmp/dshref/runtime node docs/probe-skill-catalog-publish.mjs
+```
+
+完整代码定位与逐条实测见 [`docs/workspace-capabilities-panel-plan.md`](docs/workspace-capabilities-panel-plan.md) 第 1 节。
 
 ## 安装
 
@@ -86,6 +126,7 @@
 - **`get()` 自己读正文**：赢家是自己，委托 `ctx.skills.get()` 会无限递归。正文按官方规则取（去 frontmatter 后 `body.trim()`）。
 - **`tools.restrict` 三段式防护**：restrict 会**同步** emit `tools/change`，无条件重注册会同步递归到栈溢出、卡死整个 dsh 进程。防护是 ①哨兵 ②deny 集合比较 ③先删记账再 dispose。另有**代际补偿**：读盘期间若又有工具注册进来，重算而不是被哨兵静静吞掉 —— 这一条覆盖"MCP 服务器重连后工具重新出现"。
 - **面板 RPC 逐请求过栅栏**：`webServer` 的 exact 表优先于 Connection 的 `/api` prefix 表，而 `connection` 服务的就绪时机晚于插件 apply。所以注册可以早、**鉴权必须逐请求做**，优先复用官方 `connection.requestRejection`（Host/Origin 反 DNS-rebinding + 浏览器会话 cookie/进程 token），它不在时才退化为"回环 Host + 同源 Origin"。无凭据 → 401，跨站 Origin → 403。
+- **批量写盘只落一次盘**：`setSkills` 把 N 个名字合成一次读-改-写（`withSkillState` / `withoutSkillState` reduce → 一次 `updateConfigFile`，内部按路径串行 + 原子 rename），并把"已经是目标值"的行排除出写集合——写盘本身不花钱，但目录 digest 一变就会在每个受影响会话里追加一份完整目录；全部无变化时连文件都不碰。
 
 ## 能力边界（第一版）
 
@@ -98,26 +139,31 @@
 ## 开发与测试
 
 ```bash
-# 全部测试：纯 JS 单测 + 集成测试。缺解包运行时目录时，集成用例整体 skip，
-# 所以新克隆直接 npm test 不会变红（输出里的 skipped 数会告诉你跳过了几条）。
+# 全部测试：纯 JS 单测 + 集成测试（当前 103 passed / 0 skipped）。缺解包运行时目录时，
+# 集成用例整体 skip，所以新克隆直接 npm test 不会变红（输出里的 skipped 数会告诉你跳过了几条）。
 npm test
 
 # 只跑纯 JS 单测（无宿主依赖）—— test/config.test.js / rpc.test.js / client.test.js / render.test.js / catalog.test.js / policy.test.js / mcp.test.js / skills.test.js / index.test.js
 npm run test:unit
 
-# 只跑集成测试：在真实的 0.2.0-rc.2 运行时上跑
-# 先从 App 包里解出运行时：<app.asar>/dsh → /tmp/dshref/runtime
-DSH_RUNTIME_DIR=/tmp/dshref/runtime npm run test:integration
+# 集成测试在真实的 0.2.0-rc.2 运行时上跑。先从 App 包里解出运行时：<app.asar>/dsh → /tmp/dshref/runtime
+# 注意 test:integration 只跑 test/integration.test.js（插件装配）；目录发布语义在 test/integration-catalog.test.js，
+# 两个都跑用下面这条（npm test 也会带上它们）。
+DSH_RUNTIME_DIR=/tmp/dshref/runtime node --test test/integration.test.js test/integration-catalog.test.js
 
-# 覆盖率（8 个 lib 文件，当前行 100% / 分支 ~90%）
-node --test --experimental-test-coverage "test/**/*.test.js"
+# 覆盖率（8 个 lib 文件，当前行 100.00% / 分支 90.10% / 函数 97.12%）
+DSH_RUNTIME_DIR=/tmp/dshref/runtime node --test --experimental-test-coverage "test/**/*.test.js"
 ```
 
 **覆盖率口径**：`lib/client.js` 的测试通过 `test/helpers/client-bundle.js` **每个进程只 import 一次**。早先用 `?t=<n>` 绕 ESM 缓存会让同一文件产生多个脚本实例，而覆盖率报告只保留其中一个，数字会被压低一半以上，补测试也看不出来。
 
+**分支覆盖会小幅浮动**：复跑实测在 89.9–90.1 之间，波动来自既有 `config.js` / `mcp.js` 里依赖时序的分支命中与否（行覆盖稳定 100.00%），与技能面板这轮改动无关。
+
 **注意用 App 自带的 node**（`/Applications/DeepSeek Harness.app/Contents/Resources/runtime/primary-runtime/dependencies/node/bin/node`，v24）：在系统 Node 上跑 **dsh 本体**、加载宿主原生模块时会报 `No usable native binding found for node-addon-require-builtin-darwin-arm64`。本插件的测试不触发该路径（实测系统 Node v25.9.0 全绿），但装插件、跑宿主仍请用 App 自带的 node。
 
-覆盖范围：agent 层 shadow 赢过 preset 层的 filesystem provider、注册表 `invocation` 三态语义（`/名` 手势与 `skill` 工具的**实际**拒绝由运行时 `dsh-tool-skill` 保证，测试只断言注册表视图）、同 cwd 并发枚举不漏降级、通配符/两级配置、能力边界、MCP deny（含迟到注册补偿与反复切换不卡死）、面板 RPC 全链路（鉴权栅栏逐请求生效、写盘即时生效、不存在的 cwd 直接拒绝且不写盘、并发写不丢更新、`default` 不被物化、损坏配置拒写）、面板在无 live agent 的工作区不借用别处目录、以及 `catalog`/`policy` 的纯函数与缓存边界。
+覆盖范围：agent 层 shadow 赢过 preset 层的 filesystem provider、注册表 `invocation` 三态语义（`/名` 手势与 `skill` 工具的**实际**拒绝由运行时 `dsh-tool-skill` 保证，测试只断言注册表视图）、同 cwd 并发枚举不漏降级、通配符/两级配置、能力边界、MCP deny（含迟到注册补偿与反复切换不卡死）、面板 RPC 全链路（鉴权栅栏逐请求生效、写盘即时生效、不存在的 cwd 直接拒绝且不写盘、并发写不丢更新、`default` 不被物化、损坏配置拒写）、面板在无 live agent 的工作区不借用别处目录、面板交互（状态下拉与「删除显式配置」、勾选与批量条、回执文案、分组表头）、三层排序、目录体量估算（`catalogChars` / `inCatalog` / `fallbackState`），以及 `catalog`/`policy` 的纯函数与缓存边界。
+
+`test/integration-catalog.test.js` 在真实 0.2.0-rc.2 运行时上另锁五条**宿主发布语义**：首次发布是 `source.kind=skill-catalog` 的 durable user 消息（不带 update 标记）、目录未变时完全静默、目录变化时 update 带全量 entries 并**追加**为新消息、面板写盘后下一个 pre-step 立刻看到新目录、批量 `setSkills` 改 N 个技能**只追加一条** update。
 
 ## 许可
 
