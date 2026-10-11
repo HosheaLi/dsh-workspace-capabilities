@@ -1,6 +1,6 @@
 # 工作区能力面板 + 技能目录注入：优化方案
 
-> 状态：**已实施**（2026-10-11，实现提交 `7c2a80f`；实施结果与偏差见第 7 节） · 对象：`dsh-workspace-scope@0.1.0`
+> 状态：**已实施**（2026-10-11：实现 `7c2a80f`，审查修复 `a1600c4`；实施结果、偏差与修复清单见第 7 节） · 对象：`dsh-workspace-scope@0.1.0`
 > 结论先行：三个问题里只有第 3 个是机制问题；而它的实测结论会反过来决定第 1 个怎么设计——
 > **批量修改不是"顺手做的便利功能"，它是当前唯一能减少会话成本的手段。**
 
@@ -263,15 +263,15 @@ async setSkills(args) { … }
 
 ## 7. 实施结果（2026-10-11）
 
-实现提交 `7c2a80f`（`feat(panel): 状态下拉+批量勾选、三层排序分组、目录体量提示`），S1 / S2 / S3 一次做完。
+实现提交 `7c2a80f`（`feat(panel): 状态下拉+批量勾选、三层排序分组、目录体量提示`），S1 / S2 / S3 一次做完；随后按独立代码审查结论修了一轮，修复提交 `a1600c4`（见 7.4）。
 
 ### 7.1 每个文件改了什么
 
 | 文件 | 改动 |
 | --- | --- |
-| `lib/client.js` | 列模板定稿 `24px minmax(150px,200px) minmax(180px,1fr) 96px`（`GRID_MIN_WIDTH='474px'`）；三态按钮 → 原生 `<select>`（精确键时多一项「删除显式配置（→ 回落态）」）；最左勾选列 + 表头全选（无筛选内可管理行时禁用）+ 批量条（设为某态 / 恢复默认 / 清除选择 / 本次 Δ）；描述列 2 行截断、**来源标签移到描述单元格末尾**；技能单元格第二行改 `显式配置\|命中 xxx · 体积`；不可管理行现在也会显示自己的描述（`reason` 进徽标 `title`）；按 `(可管理, 来源)` 插分组表头；工具栏加 `目录 ≈ x 字符 / n 条`（token 换算进 tooltip）；头部加"改动立即生效 + 每次变化追加一份完整目录"常驻说明；勾选集跨搜索/筛选保留、切工作区与写盘后清空 |
+| `lib/client.js` | 列模板定稿 `24px minmax(150px,200px) minmax(180px,1fr) 96px`（`GRID_MIN_WIDTH='474px'`）；三态按钮 → 原生 `<select>`（`fallbackState !== undefined` 时多一项「删除显式配置（→ 回落态）」，见 7.4）；最左勾选列 + 表头全选（无筛选内可管理行时禁用）+ 批量条（设为某态 / 恢复默认 / 清除选择 / 本次 Δ）；描述列 2 行截断、**来源标签移到描述单元格末尾**；技能单元格第二行改 `显式配置\|命中 xxx · 体积`；不可管理行现在也会显示自己的描述（`reason` 进徽标 `title`）；按 `(可管理, 来源)` 插分组表头；工具栏加 `目录 ≈ x 字符 / n 条`（token 换算进 tooltip）；头部加"改动立即生效 + 每次变化追加一份完整目录"常驻说明；勾选集跨搜索/筛选保留、切工作区与写盘后清空 |
 | `lib/catalog.js` | 新增 `SOURCE_ORDER` / `sourceRankOf()` / `compareCatalogRows()`（可管理 → 来源 → 名称）；新增目录体量估算纯函数 `CATALOG_DESCRIPTION_MAX_LENGTH` / `catalogCharsOf()` / `inModelCatalog()`（复刻 `dsh-tool-skill` 的渲染与 500 字符截断规则） |
-| `lib/rpc.js` | `state` 每行新增 `catalogChars` / `inCatalog` / `fallbackState`，`state.catalog` 新增 `{ entries, chars }`；排序改用 `compareCatalogRows`；新增原子批量 `setSkills({cwd, names, state, layer?})`：`names` 校验（数组 / 非空串 / 按首次出现去重 / 上限 200）、跳过并逐条回报"目录里没有 / 不可管理 / `default` 时无精确键"、已是目标值直接略过、**一次** `writeLayer` 写盘、全部无变化返回 `{noop:true}` 且不写盘 |
+| `lib/rpc.js` | `state` 每行新增 `catalogChars` / `inCatalog` / `fallbackState`（`fallbackState` 按**写入层**是否真有精确键算，见 7.4），`state.catalog` 新增 `{ entries, chars }`；排序改用 `compareCatalogRows`；新增原子批量 `setSkills({cwd, names, state, layer?})`：`names` 校验（数组 / 非空串 / 按首次出现去重 / 上限 200）、跳过并逐条回报"目录里没有 / 不可管理 / `default` 时无精确键 / 精确键不在写入层"、已是目标值直接略过、**一次** `writeLayer` 写盘、没有任何名字需要写盘时返回 `{noop:true}` 且不写盘 |
 | `test/integration-catalog.test.js`（新） | 5 条：首次发布是 durable user 消息（不带 `update`）、未变化静默、变化 = 追加全量 update、写盘后下一个 pre-step 生效、批量 `setSkills` 只追加一条 update |
 | `test/helpers/catalog-harness.js`（新） | 真实运行时 + 本插件的搭台与最小 session 替身（`header.cwd` / `seq` / `surface.nodes` / `eventAt` / `append`），缺运行时整组 skip |
 | `test/catalog.test.js` +5、`test/rpc.test.js` +2、`test/render.test.js` +4 | 排序三层与未知来源落最后、目录体量估算、`setSkills` 原子性/跳过/no-op/参数校验、面板勾选与批量条交互、回执文案、分组表头 |
@@ -280,12 +280,15 @@ async setSkills(args) { … }
 
 `DSH_RUNTIME_DIR=/tmp/dshref/runtime`，本机复跑（与第 5 节基线对比）：
 
-| 指标 | 基线 | 实施后 |
-| --- | --- | --- |
-| `npm test` | 87 passed / 0 failed / 0 skipped | **103 passed / 0 failed / 0 skipped** |
-| 覆盖率 · 行 | 100% | **100.00%** |
-| 覆盖率 · 分支 | ~90% | **90.10%**（复跑实测在 89.9–90.1 之间浮动，波动来自既有 `config.js` / `mcp.js` 的时序分支，与本次改动无关） |
-| 覆盖率 · 函数 | — | 97.12% |
+| 指标 | 基线 | S1–S3（`7c2a80f`） | 审查修复后（`a1600c4`，当前） |
+| --- | --- | --- | --- |
+| `npm test` | 87 passed / 0 failed / 0 skipped | 103 passed / 0 failed / 0 skipped | **107 passed / 0 failed / 0 skipped** |
+| `npm run test:integration` | 只含 `test/integration.test.js` | 只含 `test/integration.test.js` | **19 passed / 0 skipped**（两个文件；缺运行时 19 skipped） |
+| 覆盖率 · 行 | 100% | 100.00% | **100.00%** |
+| 覆盖率 · 分支 | ~90% | 90.10%（复跑 89.9–90.1） | **89.24–89.44%**（复跑 13 次：89.44 ×11、89.34 ×1、89.24 ×1） |
+| 覆盖率 · 函数 | — | 97.12% | **97.18%** |
+
+分支比例从 90.10 略降到 89.4：`a1600c4` 为跨层清除等边界新增了防御分支（分母变大），不是覆盖退化——行覆盖仍是 100.00%。两个版本的分支浮动都来自既有 `config.js` / `mcp.js` 里依赖时序的分支命中与否，与本次改动无关。
 
 ### 7.3 与本文档原设计的偏差（以实现为准，正文已同步更正）
 
@@ -293,9 +296,26 @@ async setSkills(args) { … }
 2. **来源并入描述单元格末尾**，不是技能单元格第二行（原 2.1、待拍板 1 已更正）；技能单元格第二行留给 `显式配置/命中 xxx · 体积`。
 3. **表头勾选框没有半选态**：实现是"全选 / 取消全选 + 筛选内没有可管理行时禁用"；`indeterminate` 是 DOM 属性、要 `ref` 才能设，本轮未做。
 4. **成本文案落点**：工具栏是 `目录 ≈ 4.5k 字符 / 31 条`（token 换算只进 tooltip，正文不给伪精度），批量条是 `已选 N 项（当前筛选 M 项）… 本次：目录 ±x 字符 ｜ 目录变化会在会话里追加 1 份完整目录`；与 4.1 建议的文案细节不同，信息量一致。
-5. **`npm run test:integration` 仍只跑 `test/integration.test.js`**：新的目录发布用例在 `test/integration-catalog.test.js`，要两个都跑需显式列出（或用 `npm test`）——README「开发与测试」已写明。
+5. **`npm run test:integration` 起初只跑 `test/integration.test.js`**：已在 `a1600c4` 补上 `test/integration-catalog.test.js`（现在 19 passed / 0 skipped）。
 
-### 7.4 GUI 手工验收
+### 7.4 代码审查后的修复（`a1600c4`）
+
+独立审查给出 1 HIGH + 2 MEDIUM + 4 LOW，全部修完：
+
+| 级别 | 问题 | 修法 |
+| --- | --- | --- |
+| HIGH | `setSkill` / `setSkills` 的 `state: 'default'` 按**合并后**的生效配置判断"有没有可删的键"。精确键在全局层、默认却写项目层时，会回执成功并**凭空建出一个空的项目层配置**，生效状态一点没变（假成功） | 判据改为"**目标写盘层里真有这个精确键**"（新增 `hasExactKeyIn` / `configWithoutExactKey` / `fallbackStateOf`）。键不在目标层：`setSkill` 返回 `{layer, name, state:'default', noop:true}` 不写盘；`setSkills` 进 `skipped`，reason 为「显式配置不在写入层（项目层\|全局层），删除它不会改变生效状态」。`fallbackState` 同样按目标层算，`undefined` 表示这行没有可清除的键 |
+| MEDIUM | 面板「删除显式配置」只看 `matchedKey === name`，跨层场景下给了个点了没反应的动作 | 改用 `fallbackState !== undefined` 判定，与 host 共用同一判据 |
+| MEDIUM | `applied` 为空但 `skipped` 非空时文案仍是「所选技能已经是目标状态」，与紧随其后的跳过明细自相矛盾 | 回执分三种：`已改 N 项` / `未做任何改动；跳过 M 项：…` / `所选技能已经是目标状态，未写盘` |
+| MEDIUM | 单行状态下拉写盘后不清空勾选，与文档口径不符 | 单行与批量共用 `applySkill` 出口，写盘成功后清空勾选 |
+| LOW | 分组 React key 用显示名，两个"未知来源"会撞 key | 改按序号 `group-<n>` |
+| LOW | 写盘期间可重复点击状态下拉 / 批量按钮 | `busy` 期间禁用状态下拉与批量三个按钮 |
+| LOW | 超长/未知来源标签会挤坏描述列 | 来源标签加 `maxWidth: 96px` + 省略号，`title` 带完整来源与路径 |
+| LOW | `localeCompare` / `escapeText` 的注释与实现不符 | `compareCatalogRows` 注释改为"同进程内稳定、非跨机逐字节一致"；`catalogCharsOf` 注明不做 `escapeText`、字符数会轻微低估 |
+
+新增测试：跨层清除（单条 + 批量 + 项目层对照）、并发 `setSkills` 不丢更新、单行写盘清空勾选、描述 2 行截断与来源位置、分组 key 唯一性、全跳过文案。
+
+### 7.5 GUI 手工验收
 
 仍按第 5 节清单执行（宿主与 client 半边都在启动时装配，**需重启 App**）：重启 → 设置 → 工作区能力 → 勾选 3 个技能批量设「仅手动」→ 在该工作区开会话发一条消息 → 目录消息只应出现一条 update 且不含这 3 个技能。本节的验收依据是上面的自动化数字，GUI 一项未在本轮复跑。
 
