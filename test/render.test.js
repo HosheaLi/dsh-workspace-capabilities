@@ -591,6 +591,12 @@ test('设置面板：描述单元格 2 行截断，来源排在描述末尾', as
   assert.ok(cell !== undefined, '描述必须有一个包裹单元格');
   assert.equal(cell.children[0].props.title, '有精确配置', '描述在前');
   assert.equal(collectText(cell.children.at(-1)).join(''), '自定义目录', '来源标签在单元格末尾');
+  // 回归：来源标签一度写成 `flex: 0 1 auto`，被按描述的最大内容宽度等比压缩，窄列下只剩
+  // 两三个字符（实测 474px 容器里 72px 的来源被压到 23px）。必须 0 0 auto + maxWidth 兜超长。
+  const sourceStyle = cell.children.at(-1).props.style;
+  assert.equal(sourceStyle.flex, '0 0 auto', '来源标签不参与压缩');
+  assert.equal(sourceStyle.maxWidth, '96px', '超长来源靠 maxWidth 兜住，不许挤掉描述列');
+  assert.equal(sourceStyle.textOverflow, 'ellipsis');
 });
 
 test('设置面板：单行状态下拉写盘后也清空勾选', async () => {
