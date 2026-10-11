@@ -130,11 +130,13 @@ async function mountSection({ state = MIN_STATE, storage = new Map(), storageThr
       },
     },
   };
-  bundle.factory((name) => seedRequire(name, { react: react.api })).apply(ctx);
+  const api = bundle.factory((name) => seedRequire(name, { react: react.api }));
+  api.apply(ctx);
 
   const section = registered['settings.section'];
   assert.ok(section !== undefined, 'apply 必须注册 settings.section');
-  return { Component: section.Component, react, storage };
+  // `logic` 带出 bundle 的纯函数（面板的排序/分组/体量估算都在里面），供单测直接用。
+  return { Component: section.Component, react, storage, logic: api.__logic };
 }
 
 /** 把 element 树里的文本节点摊平，用于断言文案。 */
@@ -145,7 +147,7 @@ function collectText(node, out = []) {
   }
   if (node === null || node === undefined || typeof node !== 'object') return out;
   // 替身 React 不渲染函数组件，这里补上：settings 一节的子组件（ScopeHeader / SkillTable /
-  // SkillRow / McpSection / TriState）都不含 hook，可以在收集阶段安全展开。
+  // SkillRow / McpSection / StateSelect / BatchBar）都不含 hook，可以在收集阶段安全展开。
   if (typeof node.type === 'function') return collectText(node.type(node.props), out);
   for (const child of node.children ?? []) collectText(child, out);
   return out;
@@ -288,10 +290,55 @@ test('state 到达后渲染完整面板：项目根/写入层/MCP 分区齐备',
   const templates = collectGridTemplates(tree);
   assert.ok(templates.length >= 2, '表格应有表头行与数据行');
   for (const template of templates) {
-    assert.match(template, /minmax\(126px/, '描述列必须带宽度下限，否则会被压成 0 宽');
+    assert.match(template, /minmax\(180px, 1fr\)/, '描述列必须带宽度下限，否则会被压成 0 宽');
+    assert.match(template, /^24px /, '最左列是批量勾选框');
   }
   assert.equal(new Set(templates).size, 1, '表头与数据行必须共用同一套列模板，否则会列错位');
+  assert.match(text, /描述与来源/, '列头应说明来源并入了描述列');
   assert.match(text, /这是一个用来验证描述列会真的渲染出来的技能说明/, '描述必须真的渲染进树里');
+  assert.match(text, /~\/\.agents\/skills/, '来源应渲染在描述列末尾');
+  assert.match(text, /可管理 · ~\/\.agents\/skills（1）/, '应按 (可管理, 来源) 出分组表头');
+  assert.match(text, /目录 ≈ .+ 字符 \/ \d+ 条/, '应显示目录体量估算');
+  assert.match(text, /改动立即生效/, '应说明生效时机与代价');
+});
+
+// ── 面板的纯函数：排序分组、体量估算、批量增量 ──────────────────────────────
+
+test('面板纯逻辑：分组、体量估算与批量增量', async () => {
+  const { logic } = await mountSection();
+  assert.equal(logic.formatChars(0), '0');
+  assert.equal(logic.formatChars(999), '999');
+  assert.equal(logic.formatChars(1234), '1.2k');
+  assert.equal(logic.formatChars(undefined), '0');
+  assert.equal(logic.signedChars(0), '目录大小不变');
+  assert.equal(logic.signedChars(-1200), '目录 -1.2k 字符');
+  assert.equal(logic.signedChars(500), '目录 +500 字符');
+
+  // 分组只按相邻行切分：host 已排好序，这里不能重排
+  const rows = [
+    { name: 'a', manageable: true, sourceLabel: '项目 .dsh/skills' },
+    { name: 'b', manageable: true, sourceLabel: '项目 .dsh/skills' },
+    { name: 'c', manageable: true, sourceLabel: '~/.dsh/skills' },
+    { name: 'd', manageable: false, sourceLabel: '包内置' },
+  ];
+  const groups = logic.groupRows(rows);
+  assert.deepEqual(groups.map((group) => `${group.label}:${group.rows.length}`), [
+    '可管理 · 项目 .dsh/skills:2',
+    '可管理 · ~/.dsh/skills:1',
+    '不可管理 · 包内置:1',
+  ]);
+  assert.deepEqual(logic.groupRows([]), []);
+
+  // 批量增量：只统计选中行，default 用 fallbackState 推算落点
+  const skills = [
+    { name: 'on', catalogChars: 100, inCatalog: true, state: 'pinned', invocation: { modelInvocable: true } },
+    { name: 'off', catalogChars: 60, inCatalog: false, state: 'off', invocation: { modelInvocable: true } },
+    { name: 'back', catalogChars: 40, inCatalog: false, state: 'manual', fallbackState: 'pinned', invocation: { modelInvocable: true } },
+  ];
+  assert.equal(logic.batchDeltaOf(skills, new Set(['on']), 'manual'), -100, '关掉自动注入应让目录变小');
+  assert.equal(logic.batchDeltaOf(skills, new Set(['off']), 'pinned'), 60, '设为自动注入应让目录变大');
+  assert.equal(logic.batchDeltaOf(skills, new Set(['back']), 'default'), 40, '恢复默认按 fallbackState 推算');
+  assert.equal(logic.batchDeltaOf(skills, new Set(), 'off'), 0, '没选中就不该有增量');
 });
 
 // ── 交互分支：设置面板的写操作与 composer 浮层 ──────────────────────────────
@@ -313,22 +360,23 @@ const labelOf = (element) => collectText(element).join('');
 
 /** 渲染一帧并执行收集到的 effects（模拟挂载 + 数据到达）。 */
 async function mountSectionAndWait(options) {
-  const { Component, react, storage } = await mountSection(options);
+  const { Component, react, storage, logic } = await mountSection(options);
   const first = react.render(Component, { close: () => {} });
   assert.ok(first.tree !== undefined, '首帧必须能渲染');
   const { effects } = react.render(Component, { close: () => {} });
   for (const effect of effects) effect();
   await new Promise((resolve) => setTimeout(resolve, 20));
-  return { Component, react, storage, view: () => react.render(Component, { close: () => {} }).tree };
+  return { Component, react, storage, logic, view: () => react.render(Component, { close: () => {} }).tree };
 }
 
 const INTERACTIVE_STATE = {
   ...MIN_STATE,
+  catalog: { via: 'agent', incomplete: false, entries: 1, chars: 120 },
   skills: [
-    { name: 'exact-skill', description: '有精确配置', source: 'custom', sourceLabel: '自定义目录', invocation: { modelInvocable: true, userInvocable: true }, path: '/x/a/SKILL.md', manageable: true, size: 100, state: 'manual', matchedKey: 'exact-skill' },
-    { name: 'glob-skill', description: '命中通配符的技能', source: 'custom', sourceLabel: '自定义目录', invocation: { modelInvocable: true, userInvocable: true }, path: '/x/b/SKILL.md', manageable: true, size: 2048, state: 'off', matchedKey: 'glob-*' },
-    { name: 'bundled-skill', description: '不可接管', source: 'bundled', sourceLabel: '包内置', invocation: { modelInvocable: true, userInvocable: true }, manageable: false, reason: '包内置技能正文不在磁盘上，接管会让 /名 静默失效', state: 'off' },
-    { name: 'not-applied', description: '配置说关了但注册表仍可见', source: 'custom', sourceLabel: '自定义目录', invocation: { modelInvocable: true, userInvocable: true }, path: '/x/c/SKILL.md', manageable: true, size: 300, state: 'manual', matchedKey: undefined },
+    { name: 'exact-skill', description: '有精确配置', source: 'custom', sourceLabel: '自定义目录', invocation: { modelInvocable: true, userInvocable: true }, path: '/x/a/SKILL.md', manageable: true, size: 100, state: 'manual', matchedKey: 'exact-skill', fallbackState: 'pinned', catalogChars: 120, inCatalog: false },
+    { name: 'glob-skill', description: '命中通配符的技能', source: 'custom', sourceLabel: '自定义目录', invocation: { modelInvocable: true, userInvocable: true }, path: '/x/b/SKILL.md', manageable: true, size: 2048, state: 'off', matchedKey: 'glob-*', catalogChars: 80, inCatalog: false },
+    { name: 'bundled-skill', description: '不可接管', source: 'bundled', sourceLabel: '包内置', invocation: { modelInvocable: true, userInvocable: true }, manageable: false, reason: '包内置技能正文不在磁盘上，接管会让 /名 静默失效', state: 'off', catalogChars: 60, inCatalog: true },
+    { name: 'not-applied', description: '配置说关了但注册表仍可见', source: 'custom', sourceLabel: '自定义目录', invocation: { modelInvocable: true, userInvocable: true }, path: '/x/c/SKILL.md', manageable: true, size: 300, state: 'manual', matchedKey: undefined, catalogChars: 90, inCatalog: false },
   ],
   mcp: [
     { name: 'comfy', toolCount: 2, enabled: false, explicit: true, visibleTools: 0 },
@@ -352,27 +400,44 @@ test('设置面板：渲染可管理/不可管理/命中来源与"未生效?"标
   assert.match(text, /2 个工具/, 'MCP 分区显示工具数');
   assert.match(text, /可见 0\/2|全部可见/, '有探针时报可见数');
 
-  // 通配符命中的行不该给"清除"（点了没反应）；精确命中才给。
-  const clearButtons = collectElementsDeep(tree).filter((element) => element.type === 'button' && labelOf(element) === '清除');
-  assert.equal(clearButtons.length, 1, '只有精确键命中才该有清除按钮');
+  // 回归：描述列原来渲染 `reason ?? description`，不可管理技能因此永远看不到自己的描述。
+  assert.match(text, /不可接管/, '不可管理行也要显示自己的描述');
+  const badge = findElement(tree, (element) => element.type === 'span' && labelOf(element) === '不可管理');
+  assert.match(badge.props.title, /正文不在磁盘上/, '不可管理的原因应进 title');
+
+  // 分组的先后顺序 = host 的排序：可管理组在前
+  assert.ok(text.indexOf('可管理 · 自定义目录') < text.indexOf('不可管理 · 包内置'), '可管理组必须排在不可管理组之前');
+
+  const optionsOf = (name) => collectElementsDeep(
+    findElement(tree, (element) => element.type === 'select' && element.props['aria-label'] === `技能 ${name} 的注入状态`),
+  ).filter((element) => element.type === 'option');
+  // "删除显式配置"只对**精确键**有意义：命中的是通配符时配置里没有以技能名命名的键。
+  assert.equal(optionsOf('exact-skill').length, 4, '精确命中的行应有"删除显式配置"这一项');
+  assert.equal(optionsOf('glob-skill').length, 3, '通配符命中没有可删的键，不该给第 4 项');
+
+  // 勾选框：不可管理的行不能选（批量修改对它没有意义）
+  const disabled = findElement(tree, (element) => element.type === 'input' && element.props['aria-label'] === '选择技能 bundled-skill');
+  assert.equal(disabled.props.disabled, true, '不可管理行的勾选框必须禁用');
+  const enabled = findElement(tree, (element) => element.type === 'input' && element.props['aria-label'] === '选择技能 exact-skill');
+  assert.equal(enabled.props.disabled, false);
 });
 
-test('设置面板：三态/清除/默认/MCP/搜索/切换工作区都会发出对应 RPC', async () => {
+test('设置面板：状态下拉/删除显式配置/批量/默认/MCP/搜索/切换工作区都会发出对应 RPC', async () => {
   const calls = [];
-  const { react, storage, view } = await mountSectionAndWait({ state: INTERACTIVE_STATE, onRpc: (method, args) => calls.push({ method, args }) });
+  const { storage, view, logic } = await mountSectionAndWait({ state: INTERACTIVE_STATE, onRpc: (method, args) => calls.push({ method, args }) });
   const flush = () => new Promise((resolve) => setTimeout(resolve, 20));
+  const stateSelectOf = (name) => findElement(view(), (element) => element.type === 'select' && element.props['aria-label'] === `技能 ${name} 的注入状态`);
 
-  // 三态：把 exact-skill 切到"关闭"
-  const manualToOff = findElement(view(), (element) => element.type === 'button' && labelOf(element) === '关闭');
-  assert.ok(manualToOff !== undefined, '应渲染三态按钮');
-  manualToOff.props.onClick();
+  // 状态下拉：把 exact-skill 切到"关闭"
+  assert.ok(stateSelectOf('exact-skill') !== undefined, '应渲染状态下拉');
+  stateSelectOf('exact-skill').props.onChange({ target: { value: 'off' } });
   await flush();
-  assert.ok(calls.some((call) => call.method === 'setSkill' && call.args.state === 'off'), JSON.stringify(calls));
+  assert.ok(calls.some((call) => call.method === 'setSkill' && call.args.name === 'exact-skill' && call.args.state === 'off'), JSON.stringify(calls));
 
-  // 清除：精确命中那一行
-  findElement(view(), (element) => element.type === 'button' && labelOf(element) === '清除').props.onClick();
+  // 删除显式配置：下拉第 4 项
+  stateSelectOf('exact-skill').props.onChange({ target: { value: logic.CLEAR_VALUE } });
   await flush();
-  assert.ok(calls.some((call) => call.method === 'setSkill' && call.args.state === 'default'));
+  assert.ok(calls.some((call) => call.method === 'setSkill' && call.args.state === 'default'), JSON.stringify(calls));
 
   // 默认状态
   const defaultSelect = findElement(view(), (element) => element.type === 'select' && element.props.value === 'pinned');
@@ -396,7 +461,7 @@ test('设置面板：三态/清除/默认/MCP/搜索/切换工作区都会发出
   assert.doesNotMatch(filtered, /exact-skill/, '搜索应过滤掉不匹配的行');
 
   // 只看非默认项
-  const onlyProblem = findElement(view(), (element) => element.type === 'input' && element.props.type === 'checkbox' && element.props.checked === false);
+  const onlyProblem = findElement(view(), (element) => element.type === 'input' && element.props['aria-label'] === '只看非默认项');
   onlyProblem.props.onChange({ target: { checked: true } });
 
   // 切换工作区：写入 localStorage 并重新拉状态
@@ -404,6 +469,110 @@ test('设置面板：三态/清除/默认/MCP/搜索/切换工作区都会发出
   workspaceSelect.props.onChange({ target: { value: '/Users/example/code/demo' } });
   await flush();
   assert.equal(storage.get('dsh-workspace-scope.cwd'), '/Users/example/code/demo', '选择的工作区要记住');
+});
+
+test('设置面板：勾选与批量条——全选只覆盖可管理行，应用后清空勾选并回报结果', async () => {
+  const calls = [];
+  const { view } = await mountSectionAndWait({ state: INTERACTIVE_STATE, onRpc: (method, args) => calls.push({ method, args }) });
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 20));
+  const checkboxOf = (tree, label) => findElement(tree, (element) => element.type === 'input' && element.props['aria-label'] === label);
+
+  // 未选中任何行时不显示批量条
+  assert.doesNotMatch(collectText(view()).join(' '), /已选/, '没有勾选时不该占位');
+
+  // 表头全选：只勾可管理的三行（bundled 不可管理）
+  checkboxOf(view(), '全选当前筛选内的可管理技能').props.onChange({ target: { checked: true } });
+  await flush();
+  let text = collectText(view()).join(' ');
+  assert.match(text, /已选 3 项（当前筛选 4 项）/, '表头全选应只覆盖可管理行');
+  assert.equal(checkboxOf(view(), '选择技能 bundled-skill').props.checked, false, '不可管理行不该被全选');
+
+  // 批量条给出目录体量增量（三行都不在目录里 → 设为 manual 不改变目录）
+  assert.match(text, /本次：目录大小不变/, '批次里没有在目录中的行');
+
+  // 改成"关闭"再应用
+  findElement(view(), (element) => element.type === 'select' && element.props['aria-label'] === '批量设置的状态')
+    .props.onChange({ target: { value: 'off' } });
+  const applyButton = findElement(view(), (element) => element.type === 'button' && labelOf(element) === '应用');
+  applyButton.props.onClick();
+  await flush();
+  const batch = calls.find((call) => call.method === 'setSkills');
+  assert.ok(batch !== undefined, '应发出 setSkills');
+  assert.deepEqual([...batch.args.names].sort(), ['exact-skill', 'glob-skill', 'not-applied'], '批量名必须是勾选的可管理行');
+  assert.equal(batch.args.state, 'off');
+  assert.doesNotMatch(collectText(view()).join(' '), /已选 \d+ 项/, '写盘成功后必须清空勾选');
+
+  // 恢复默认：同一个批量入口，state 为 default
+  checkboxOf(view(), '选择技能 exact-skill').props.onChange({ target: { checked: true } });
+  await flush();
+  findElement(view(), (element) => element.type === 'button' && labelOf(element) === '恢复默认').props.onClick();
+  await flush();
+  assert.ok(calls.some((call) => call.method === 'setSkills' && call.args.state === 'default'), JSON.stringify(calls));
+
+  // 取消勾选：单行取消、表头取消、清除选择三条路径都要能清干净
+  checkboxOf(view(), '选择技能 exact-skill').props.onChange({ target: { checked: true } });
+  checkboxOf(view(), '选择技能 glob-skill').props.onChange({ target: { checked: true } });
+  await flush();
+  assert.match(collectText(view()).join(' '), /已选 2 项/);
+  checkboxOf(view(), '选择技能 glob-skill').props.onChange({ target: { checked: false } });
+  await flush();
+  assert.match(collectText(view()).join(' '), /已选 1 项/, '取消单行必须减少计数');
+
+  checkboxOf(view(), '全选当前筛选内的可管理技能').props.onChange({ target: { checked: true } });
+  await flush();
+  assert.match(collectText(view()).join(' '), /已选 3 项/);
+  checkboxOf(view(), '全选当前筛选内的可管理技能').props.onChange({ target: { checked: false } });
+  await flush();
+  assert.doesNotMatch(collectText(view()).join(' '), /已选 \d+ 项/, '表头取消全选后批量条应消失');
+
+  checkboxOf(view(), '选择技能 exact-skill').props.onChange({ target: { checked: true } });
+  await flush();
+  findElement(view(), (element) => element.type === 'button' && labelOf(element) === '清除选择').props.onClick();
+  await flush();
+  assert.doesNotMatch(collectText(view()).join(' '), /已选 \d+ 项/, '"清除选择"必须清空勾选');
+});
+
+test('设置面板：批量写盘后按回执显示已改/跳过/noop', async () => {
+  const setSkillsReply = { value: undefined };
+  const fetchImpl = async (_url, init) => {
+    const { method } = JSON.parse(init.body);
+    if (method === 'setSkills') return { status: 200, json: async () => ({ ok: true, value: setSkillsReply.value }) };
+    const value = method === 'workspaces' ? { workspaces: INTERACTIVE_STATE.workspaces } : INTERACTIVE_STATE;
+    return { status: 200, json: async () => ({ ok: true, value }) };
+  };
+  const { view } = await mountSectionAndWait({ state: INTERACTIVE_STATE, fetchImpl });
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 20));
+  const selectFirst = () => findElement(view(), (element) => element.type === 'input' && element.props['aria-label'] === '选择技能 exact-skill')
+    .props.onChange({ target: { checked: true } });
+
+  setSkillsReply.value = { layer: 'project', path: '/p/.dsh/skills-scope.json', applied: ['exact-skill'], skipped: [{ name: 'glob-skill', reason: '命中的是通配符/默认' }], noop: false };
+  selectFirst();
+  await flush();
+  findElement(view(), (element) => element.type === 'button' && labelOf(element) === '应用').props.onClick();
+  await flush();
+  assert.match(collectText(view()).join(' '), /已改 1 项；跳过 1 项：glob-skill（命中的是通配符\/默认）/, '必须把跳过原因回报给使用者');
+
+  setSkillsReply.value = { layer: 'project', applied: [], skipped: [], noop: true };
+  selectFirst();
+  await flush();
+  findElement(view(), (element) => element.type === 'button' && labelOf(element) === '应用').props.onClick();
+  await flush();
+  assert.match(collectText(view()).join(' '), /已经是目标状态，未写盘/, 'no-op 要说清楚没有写盘');
+});
+
+test('设置面板：批量条按 inCatalog/catalogChars 估算目录增量', async () => {
+  const { view, logic } = await mountSectionAndWait({ state: INTERACTIVE_STATE });
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 20));
+  // exact-skill 此刻不在目录里（manual），设为"自动注入"会让目录 +120 字符
+  findElement(view(), (element) => element.type === 'input' && element.props['aria-label'] === '选择技能 exact-skill')
+    .props.onChange({ target: { checked: true } });
+  findElement(view(), (element) => element.type === 'select' && element.props['aria-label'] === '批量设置的状态')
+    .props.onChange({ target: { value: 'pinned' } });
+  await flush();
+  const text = collectText(view()).join(' ');
+  assert.match(text, /本次：目录 \+120 字符/, '选中 manual 行设为自动注入应显示目录变大');
+  assert.match(text, /目录变化会在会话里追加 1 份完整目录/, '必须提示一次性代价');
+  assert.equal(logic.formatChars(120), '120');
 });
 
 test('设置面板：localStorage 不可用与 RPC 失败都降级到可见提示，不崩', async () => {
@@ -607,7 +776,8 @@ test('设置面板：没有可配置工作区 / 只有 state 失败 / 写盘失�
       return { status: 200, json: async () => ({ ok: true, value }) };
     },
   });
-  findElement(writeFailView(), (element) => element.type === 'button' && labelOf(element) === '关闭').props.onClick();
+  findElement(writeFailView(), (element) => element.type === 'select' && element.props['aria-label'] === '技能 exact-skill 的注入状态')
+    .props.onChange({ target: { value: 'off' } });
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.match(collectText(writeFailView()).join(' '), /写盘被拒/);
 

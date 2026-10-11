@@ -9,14 +9,86 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  catalogCharsOf,
+  CATALOG_DESCRIPTION_MAX_LENGTH,
   collectCatalog,
+  compareCatalogRows,
+  inModelCatalog,
   MANAGEABLE_SOURCES,
   manageabilityOf,
   sourceLabelOf,
+  sourceRankOf,
   SOURCE_LABELS,
+  SOURCE_ORDER,
   stripFrontmatter,
   toCatalogRow,
 } from '../lib/catalog.js';
+
+test('SOURCE_ORDER 与 SOURCE_LABELS 必须一一对应（加来源时别漏配显示名）', () => {
+  assert.deepEqual([...SOURCE_ORDER].sort(), Object.keys(SOURCE_LABELS).sort(), '两个表必须描述同一组来源');
+  assert.equal(new Set(SOURCE_ORDER).size, SOURCE_ORDER.length, '顺序表里不该有重复');
+  // 前五项与 dsh-skill-filesystem 的 rank 同序：面板顺序 = 同名冲突时的实际优先级
+  assert.deepEqual(SOURCE_ORDER.slice(0, 5), ['project-dsh', 'project-agents', 'custom', 'user-dsh', 'user-agents']);
+});
+
+test('sourceRankOf：已知来源按顺序，未知/空/非字符串排最后', () => {
+  assert.equal(sourceRankOf('project-dsh'), 0);
+  assert.equal(sourceRankOf('runtime'), SOURCE_ORDER.length - 1);
+  assert.equal(sourceRankOf('bundled') < sourceRankOf('runtime'), true, '包内置排在运行时注册之前');
+  for (const unknown of ['自造来源', '', undefined, 42]) {
+    assert.equal(sourceRankOf(unknown), SOURCE_ORDER.length, `未知来源 ${String(unknown)} 必须排最后`);
+  }
+});
+
+test('compareCatalogRows：可管理优先 → 来源 → 名称', () => {
+  const row = (name, source, manageable = true) => ({ name, source, manageable, sourceLabel: sourceLabelOf(source) });
+  const sorted = [
+    row('zeta', 'user-agents'),
+    row('beta', 'bundled', false),
+    row('alpha', 'project-agents'),
+    row('runtime-c', 'runtime', false),
+    row('alpha', 'project-dsh'),
+    row('mystery', '自造来源'),
+    row('beta', 'project-dsh'),
+    row('ghost', '自造来源', false),
+  ].sort(compareCatalogRows);
+
+  assert.deepEqual(sorted.map((entry) => `${entry.name}@${entry.source}`), [
+    // 可管理组：项目 → 自定义 → 用户 → 未知来源
+    'alpha@project-dsh',
+    'beta@project-dsh',
+    'alpha@project-agents',
+    'zeta@user-agents',
+    'mystery@自造来源',
+    // 不可管理组：同样是来源优先，未知来源仍排最后
+    'beta@bundled',
+    'runtime-c@runtime',
+    'ghost@自造来源',
+  ]);
+  assert.equal(compareCatalogRows(row('a', 'custom'), row('a', 'custom')), 0, '同键必须相等，排序才是稳定的');
+});
+
+test('catalogCharsOf：复刻宿主渲染规则（空白折叠、500 字符截断、不进目录时为 0）', () => {
+  const base = { name: 'demo', invocation: { modelInvocable: true } };
+  assert.equal(catalogCharsOf({ ...base, description: '描述' }), '- `demo`: 描述'.length + 1);
+  assert.equal(catalogCharsOf({ ...base, description: 'a\n\n  b ' }), '- `demo`: a b'.length + 1, '空白要折叠成一个空格');
+  const long = 'x'.repeat(CATALOG_DESCRIPTION_MAX_LENGTH + 50);
+  const clipped = catalogCharsOf({ ...base, description: long });
+  assert.equal(clipped, `- \`demo\`: ${'x'.repeat(CATALOG_DESCRIPTION_MAX_LENGTH - 3)}...`.length + 1, '超长描述按宿主的 500 字符上限截断');
+  assert.equal(catalogCharsOf({ ...base, invocation: { modelInvocable: false }, description: '描述' }), 0, '模型不可调用的技能永远不进目录');
+  assert.equal(catalogCharsOf({ ...base, description: undefined }), '- `demo`: '.length + 1, '缺描述按空串算');
+});
+
+test('inModelCatalog：可管理行只有 pinned 进目录，不可管理行看注册表', () => {
+  const row = (extra) => ({ name: 'demo', manageable: true, state: 'pinned', invocation: { modelInvocable: true }, ...extra });
+  assert.equal(inModelCatalog(row({})), true);
+  assert.equal(inModelCatalog(row({ state: 'manual' })), false, 'manual 被 shadow provider 摘出目录');
+  assert.equal(inModelCatalog(row({ state: 'off' })), false);
+  assert.equal(inModelCatalog(row({ invocation: { modelInvocable: false } })), false, 'disable-model-invocation 的技能不进目录');
+  // 不可管理行本插件不接管：state 对它没有意义，注册表说可见就可见
+  assert.equal(inModelCatalog(row({ manageable: false, state: 'off' })), true);
+  assert.equal(inModelCatalog(row({ manageable: false, invocation: { modelInvocable: false } })), false);
+});
 
 test('stripFrontmatter：剥掉 frontmatter 后 trim 正文，容忍 CRLF', () => {
   assert.equal(stripFrontmatter('---\nname: a\n---\n\n正文\n'), '正文');

@@ -6,7 +6,7 @@
  */
 
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -172,7 +172,7 @@ async function makeHostEnv() {
 }
 
 /** 造一个 host ctx 替身 + 方法表。 */
-function makeMethods({ home, agents = [], schemas = [], workspaceRegistry } = {}) {
+function makeMethods({ home, agents = [], schemas = [], workspaceRegistry, onChanged } = {}) {
   const visible = new Set(schemas.map((schema) => schema.name));
   const ctx = {
     get: (name) => {
@@ -188,7 +188,7 @@ function makeMethods({ home, agents = [], schemas = [], workspaceRegistry } = {}
     skills: { list: async () => [] },
   };
   const policy = createPolicyResolver({ env: { DSH_HOME: home } });
-  return { methods: createRpcMethods({ ctx, policy, notifyChanged: () => {} }), policy, ctx };
+  return { methods: createRpcMethods({ ctx, policy, notifyChanged: () => onChanged?.() }), policy, ctx };
 }
 
 /** 造一个能给出技能目录的 agent。 */
@@ -384,6 +384,114 @@ test('createRpcMethods：totals 只把可接管技能算进隐藏/关闭', async
     assert.equal(byName.get('keep').state, 'pinned');
     assert.equal(byName.get('bundled-one').manageable, false, '不可接管技能不接管');
     assert.equal(byName.get('bundled-one').size, undefined, '不可接管技能不读体积');
+  } finally {
+    await rm(env.base, { recursive: true, force: true });
+  }
+});
+
+test('createRpcMethods：state 按 可管理 → 来源 → 名称 排序，并给出目录体量与回落落点', async () => {
+  const env = await makeHostEnv();
+  try {
+    await mkdir(join(env.project, '.dsh'), { recursive: true });
+    await writeFile(
+      join(env.project, '.dsh', 'skills-scope.json'),
+      JSON.stringify({ version: 1, skills: { 'user-late': 'manual' }, mcp: {} }),
+      'utf8',
+    );
+    const rows = [
+      { name: 'user-late', description: '用户级', source: 'user-agents', path: '/x/u/SKILL.md', invocation: { modelInvocable: true, userInvocable: true } },
+      { name: 'proj-b', description: '项目级 B', source: 'project-dsh', path: '/x/pb/SKILL.md', invocation: { modelInvocable: true, userInvocable: true } },
+      { name: 'proj-a', description: '项目级 A', source: 'project-dsh', path: '/x/pa/SKILL.md', invocation: { modelInvocable: true, userInvocable: true } },
+      { name: 'bundle-z', description: '包内置', source: 'bundled', invocation: { modelInvocable: true, userInvocable: true } },
+      { name: 'no-model', description: '不进目录', source: 'custom', path: '/x/n/SKILL.md', invocation: { modelInvocable: false, userInvocable: true } },
+    ];
+    const { methods } = makeMethods({ home: env.home, agents: [viewAgent(env.project, rows)] });
+    const state = await methods.state({ cwd: env.project });
+
+    assert.deepEqual(
+      state.skills.map((row) => row.name),
+      ['proj-a', 'proj-b', 'no-model', 'user-late', 'bundle-z'],
+      '可管理组在前，组内按来源（项目 → 自定义 → 用户），不可管理组在后',
+    );
+    const byName = new Map(state.skills.map((row) => [row.name, row]));
+    assert.equal(byName.get('proj-a').inCatalog, true);
+    assert.equal(byName.get('user-late').inCatalog, false, 'manual 被摘出目录');
+    assert.equal(byName.get('no-model').catalogChars, 0, 'disable-model-invocation 的技能永远不进目录');
+    assert.equal(byName.get('no-model').inCatalog, false);
+    assert.equal(byName.get('bundle-z').inCatalog, true, '不可管理但注册表可见 → 仍在目录里');
+    assert.equal(byName.get('user-late').fallbackState, 'pinned', '删除精确键后回落到 default');
+    assert.equal(byName.get('proj-a').fallbackState, undefined, '没有显式键就没有可回落的落点');
+    assert.equal(byName.get('proj-a').catalogChars, '- `proj-a`: 项目级 A'.length + 1);
+
+    const inCatalog = state.skills.filter((row) => row.inCatalog === true).map((row) => row.name);
+    assert.deepEqual(inCatalog.sort(), ['bundle-z', 'proj-a', 'proj-b']);
+    assert.equal(state.catalog.entries, 3);
+    assert.equal(state.catalog.chars, inCatalog.reduce((sum, name) => sum + byName.get(name).catalogChars, 0));
+  } finally {
+    await rm(env.base, { recursive: true, force: true });
+  }
+});
+
+test('createRpcMethods：setSkills 一次原子写盘、跳过不可管理/无精确键、真 no-op 不写盘', async () => {
+  const env = await makeHostEnv();
+  try {
+    const configPath = join(env.project, '.dsh', 'skills-scope.json');
+    await mkdir(join(env.project, '.dsh'), { recursive: true });
+    await writeFile(configPath, JSON.stringify({ version: 1, skills: { 'glob-*': 'off', 'exact-one': 'pinned' }, mcp: {} }), 'utf8');
+
+    const rows = [
+      { name: 'exact-one', description: 'e', source: 'custom', path: '/x/e/SKILL.md', invocation: { modelInvocable: true, userInvocable: true } },
+      { name: 'glob-two', description: 'g', source: 'custom', path: '/x/g/SKILL.md', invocation: { modelInvocable: true, userInvocable: true } },
+      // 只命中通配符、从未被显式写过：用于验证"没有可清除的显式键"
+      { name: 'glob-three', description: 'g3', source: 'custom', path: '/x/g3/SKILL.md', invocation: { modelInvocable: true, userInvocable: true } },
+      { name: 'bundled-one', description: 'b', source: 'bundled', invocation: { modelInvocable: true, userInvocable: true } },
+    ];
+    const changes = [];
+    const { methods } = makeMethods({ home: env.home, agents: [viewAgent(env.project, rows)], onChanged: () => changes.push(1) });
+
+    // 一次调用：2 个可管理 + 1 个不可管理 + 1 个不存在 + 1 个重复名
+    const result = await methods.setSkills({ cwd: env.project, names: ['exact-one', 'glob-two', 'bundled-one', 'ghost', 'exact-one'], state: 'manual' });
+    assert.deepEqual(result.applied, ['exact-one', 'glob-two'], '重复名去重、不可管理与不存在都跳过');
+    assert.equal(result.noop, false);
+    assert.equal(result.layer, 'project');
+    assert.deepEqual(result.skipped.map((item) => item.name), ['bundled-one', 'ghost']);
+    assert.match(result.skipped[0].reason, /正文不在磁盘上/);
+    assert.match(result.skipped[1].reason, /没有这个技能/);
+    assert.equal(changes.length, 1, '一次批量只推一次缓存代际');
+    assert.deepEqual(
+      JSON.parse(await readFile(configPath, 'utf8')).skills,
+      { 'glob-*': 'off', 'exact-one': 'manual', 'glob-two': 'manual' },
+      '两个键必须在同一次读-改-写里落盘',
+    );
+
+    // 已经是目标值：真 no-op，既不返回 path 也不碰文件
+    const before = await readFile(configPath, 'utf8');
+    const again = await methods.setSkills({ cwd: env.project, names: ['exact-one', 'glob-two'], state: 'manual' });
+    assert.equal(again.noop, true);
+    assert.equal(again.path, undefined, 'no-op 不该报写盘路径');
+    assert.deepEqual(again.applied, []);
+    assert.equal(changes.length, 1, 'no-op 不该推缓存代际');
+    assert.equal(await readFile(configPath, 'utf8'), before);
+
+    // default：只删精确键；通配符命中的行没有可删的键
+    const cleared = await methods.setSkills({ cwd: env.project, names: ['exact-one', 'glob-three'], state: 'default' });
+    assert.deepEqual(cleared.applied, ['exact-one']);
+    assert.deepEqual(cleared.skipped.map((item) => item.name), ['glob-three']);
+    assert.match(cleared.skipped[0].reason, /通配符/);
+    assert.deepEqual(JSON.parse(await readFile(configPath, 'utf8')).skills, { 'glob-*': 'off', 'glob-two': 'manual' });
+    assert.equal(changes.length, 2);
+
+    // 参数校验：形状、条数上限、state、layer
+    await assert.rejects(() => methods.setSkills({ cwd: env.project, names: undefined, state: 'off' }), /names 必须是数组/);
+    await assert.rejects(() => methods.setSkills({ cwd: env.project, names: [], state: 'off' }), /names 不能为空/);
+    await assert.rejects(() => methods.setSkills({ cwd: env.project, names: [42], state: 'off' }), /非空字符串/);
+    await assert.rejects(
+      () => methods.setSkills({ cwd: env.project, names: Array.from({ length: 201 }, (_, index) => `s${index}`), state: 'off' }),
+      /一次最多 200 项/,
+    );
+    await assert.rejects(() => methods.setSkills({ cwd: env.project, names: ['exact-one'], state: 'nope' }), /state 只能是/);
+    await assert.rejects(() => methods.setSkills({ cwd: env.project, names: ['exact-one'], state: 'off', layer: 'nope' }), /layer 只能是/);
+    assert.equal(changes.length, 2, '被拒绝的调用不该写盘');
   } finally {
     await rm(env.base, { recursive: true, force: true });
   }
