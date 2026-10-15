@@ -1,6 +1,6 @@
 {
   "name": "dsh-workspace-scope",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "按工作区（项目目录）决定技能是否进入模型目录、并屏蔽无关 MCP 服务器工具的 DSH 插件",
   "type": "module",
   "main": "lib/index.js",

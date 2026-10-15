@@ -1,3 +1,6 @@
 node_modules/
 *.log
 .DS_Store
+
+# 配置原子写盘的临时文件：正常路径会被 rename 或清理，进程被强杀时可能残留
+.dsh/*.tmp-*
