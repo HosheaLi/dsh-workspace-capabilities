@@ -1,4 +1,13 @@
-# 工作区能力面板 + 技能目录注入：优化方案
+# 工作区能力面板 + 技能目录注入：优化方案（已归档）
+
+> **归档说明**：本文是 2026-10-11 那份开发方案的原文，**已全部实施完毕**，作为决策与实测记录保留，不再更新。
+> 其中仍然有效的机制事实与实现要点已提炼到 [`../architecture.md`](../architecture.md)，日常阅读请看那份。
+> 文中的版本号 `0.1.0` 是当时的开发版本，现已重新编号为 `0.0.1`（见仓库根的 `CHANGELOG.md`）。
+> 探针脚本已归位到 `tools/probe-skill-catalog-publish.mjs`，本文中出现的旧路径 `docs/probe-…` 一律以新路径为准。
+> 文中指向**本仓库** `lib/*.js` 的行号是写作当时的定位，其后代码有改动，**行号可能已漂移**；
+> 指向宿主包 `dsh-*/lib/index.js` 的引用已复核仍然命中（0.2.0-rc.2）。
+
+---
 
 > 状态：**已实施**（2026-10-11：实现 `7c2a80f`，审查修复 `a1600c4`；实施结果、偏差与修复清单见第 7 节） · 对象：`dsh-workspace-scope@0.1.0`
 > 结论先行：三个问题里只有第 3 个是机制问题；而它的实测结论会反过来决定第 1 个怎么设计——
@@ -325,10 +334,10 @@ async setSkills(args) { … }
 
 ```bash
 # 解包运行时（一次性）：把 app.asar 内的 dsh/ 解到 /tmp/dshref/runtime
-DSH_RUNTIME_DIR=/tmp/dshref/runtime node docs/probe-skill-catalog-publish.mjs
+DSH_RUNTIME_DIR=/tmp/dshref/runtime node tools/probe-skill-catalog-publish.mjs
 ```
 
-`docs/probe-skill-catalog-publish.mjs` 组合真实 `dsh-tools` / `dsh-skill` / `dsh-skill-filesystem` /
+`tools/probe-skill-catalog-publish.mjs` 组合真实 `dsh-tools` / `dsh-skill` / `dsh-skill-filesystem` /
 `dsh-tool-skill` + 本插件，用最小 session 替身（`seq` / `surface.nodes` / `eventAt` / `append`）
 复刻 `dsh-agent-loop` 的 `preStep` 调用方式，打印每个模型步实际产生的目录消息。
 它验证的是**宿主行为**、不属于 `npm test`；S3 已把它裁剪成集成用例（`test/integration-catalog.test.js`，见第 7 节）。

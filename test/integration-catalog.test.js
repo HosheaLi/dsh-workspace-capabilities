@@ -5,7 +5,7 @@
  * 本插件只决定"哪些技能对模型可见"。之所以要固化成测试：宿主升级时这些语义一旦变化，
  * 面板开关就会静默失效或让模型抱着过期目录不放 —— 那是看不见的回归。
  *
- * 实测结论（见 docs/probe-skill-catalog-publish.mjs）：
+ * 实测结论（见 tools/probe-skill-catalog-publish.mjs）：
  *  1. 首次发布是一条 **durable user 消息**（`source.kind='skill-catalog'`，无 `update`）；
  *  2. 目录没变时**完全静默**，一条消息都不追加；
  *  3. 目录变化时发布 `update`（带**全量** entries），并且**追加**为新消息，不就地替换；

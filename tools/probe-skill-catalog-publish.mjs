@@ -2,8 +2,8 @@
  * 研究探针：技能目录（<available_skills>）在真实 0.2.0-rc.2 运行时里的发布语义。
  *
  * 不属于 `npm test`（它验证的是宿主行为，不是本插件行为）；用途是复核
- * `docs/workspace-capabilities-panel-plan.md` 第 1 节的实测结论。
- * 跑法：DSH_RUNTIME_DIR=/tmp/dshref/runtime node docs/probe-skill-catalog-publish.mjs
+ * `docs/architecture.md` 第 2 节的实测结论。
+ * 跑法：DSH_RUNTIME_DIR=/tmp/dshref/runtime node tools/probe-skill-catalog-publish.mjs
  *
  * 复刻 dsh-agent-loop 的 pre-step 调用方式（`waterfall('agent/pre-step', payload, next)`），
  * 组合真实 dsh-tools / dsh-skill / dsh-skill-filesystem / dsh-tool-skill + 本插件，
