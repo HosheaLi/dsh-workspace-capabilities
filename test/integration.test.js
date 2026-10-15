@@ -86,10 +86,12 @@ async function waitFor(predicate, { timeoutMs = 2000, stepMs = 10 } = {}) {
  * 真实 `dsh-skill-filesystem`（挂在 preset 层）+ 每个 agent 一个 scoped context。
  * `agents` / `systemPrompt` / `connection` 用最小替身（它们不是本插件的被测对象）。
  *
- * @param options - `{ dshHome, customDir, projects }`；`projects` 是
- *   `[{ id, dir, config }]`，第一个作为主 agent。
+ * @param options - `{ dshHome, customDir, projects, presetScopes }`；`projects` 是
+ *   `[{ id, dir, config }]`，第一个作为主 agent。`presetScopes` 为 true 时额外提供一个
+ *   `agentPresets` 替身（`generations` 指向本 harness 的 preset standing scope），
+ *   用来验证"没有活动 agent 的冷读也按工作区策略降级"。
  */
-async function makeHarness({ dshHome, customDir, projects }) {
+async function makeHarness({ dshHome, customDir, projects, presetScopes = false }) {
   const [{ Context }, scope, skillPlugin, fsPlugin, toolsModule] = await Promise.all([
     load('@deepseek-ai/cordis'),
     load('@deepseek-ai/dsh-scope'),
@@ -158,6 +160,16 @@ async function makeHarness({ dshHome, customDir, projects }) {
     bound.push({ agent, agentScope, project });
   }
 
+  // 冷读路径的替身：宿主 `SessionSkillCatalog.list` 在没有活动 agent 时用
+  // `presets.acquireScope(agentPreset)` 拿到 preset standing scope 的 key，再用**host 全局**
+  // 的 skills 服务读目录。这里把同一份 standing scope 暴露成 registry 的 `generations`
+  // 运行时字段，正是插件 preset 层绑定要读的结构。
+  if (presetScopes) {
+    root.provide('agentPresets', {
+      generations: new Map([[presetKey, { key: presetKey, scope: presetScope, retired: false }]]),
+    });
+  }
+
   await root.plugin(plugin);
 
   /** 调面板 RPC：用一个假的 node:http req/res 驱动真实的路由处理器。 */
@@ -188,8 +200,12 @@ async function makeHarness({ dshHome, customDir, projects }) {
     agents,
     bound,
     main: bound[0],
+    presetKey,
+    presetScope,
     callRpc,
     skillsOf: (index = 0) => bound[index].agentScope.ctx.get('skills'),
+    /** 冷读：**host 全局实例** + preset scope，逐字复刻 `SessionSkillCatalog.list` 的回落分支。 */
+    coldList: (cwd) => root.get('skills').list({ cwd, scope: presetKey }),
     list: (index = 0) => bound[index].agentScope.ctx.get('skills').list({ cwd: bound[index].project.dir, scope: bound[index].agent }),
     getSkill: (name, index = 0) => bound[index].agentScope.ctx.get('skills').get(name, { cwd: bound[index].project.dir, scope: bound[index].agent }),
     async dispose() {
@@ -259,6 +275,72 @@ integrationTest('off：两条调用路径都关掉', async () => {
       const row = (await harness.list()).find((skill) => skill.name === 'noisy-skill');
       assert.equal(row.invocation.modelInvocable, false);
       assert.equal(row.invocation.userInvocable, false);
+    } finally {
+      await harness.dispose();
+    }
+  });
+});
+
+integrationTest('preset 层：没有活动 agent 的冷读（/ 菜单回落分支）也按工作区策略降级', async () => {
+  await withEnv(async ({ dshHome, customDir, dirs }) => {
+    await writeSkill(join(dshHome, 'skills'), 'swift-like', { body: '不该被注入的正文' });
+    await writeSkill(join(dshHome, 'skills'), 'half-skill');
+    await writeSkill(join(dshHome, 'skills'), 'kept-skill');
+    await writeJson(join(dirs.project, '.dsh', 'skills-scope.json'), {
+      version: 1,
+      default: 'pinned',
+      skills: { 'swift-like': 'off', 'half-skill': 'manual' },
+      mcp: {},
+    });
+
+    // 关键：`projects: []` —— 一个活动 agent 都没有，冷读不会经过 agent 层。
+    const harness = await makeHarness({ dshHome, customDir, projects: [], presetScopes: true });
+    try {
+      const rows = new Map((await harness.coldList(dirs.project)).map((skill) => [skill.name, skill]));
+
+      const off = rows.get('swift-like');
+      assert.equal(off?.provider, 'workspace-scope', 'preset 层必须接管 off 技能（否则菜单里会出现它）');
+      assert.equal(off.invocation.modelInvocable, false);
+      assert.equal(off.invocation.userInvocable, false, 'off 不该进 user-invocable 目录');
+
+      const manual = rows.get('half-skill');
+      assert.equal(manual?.provider, 'workspace-scope');
+      assert.equal(manual.invocation.modelInvocable, false);
+      assert.equal(manual.invocation.userInvocable, true, 'manual 仍应保留 /名 手势');
+
+      const pinned = rows.get('kept-skill');
+      assert.equal(pinned?.provider, 'filesystem', 'pinned 不该被接管');
+      assert.equal(pinned.invocation.userInvocable, true);
+    } finally {
+      await harness.dispose();
+    }
+  });
+});
+
+integrationTest('两层共存：agent 层仍赢 preset 层，且不重复注册', async () => {
+  await withEnv(async ({ dshHome, customDir, dirs }) => {
+    await writeSkill(join(dshHome, 'skills'), 'dual-skill');
+    await writeJson(join(dirs.project, '.dsh', 'skills-scope.json'), {
+      version: 1,
+      default: 'pinned',
+      skills: { 'dual-skill': 'off' },
+      mcp: {},
+    });
+
+    const harness = await makeHarness({
+      dshHome,
+      customDir,
+      projects: [{ id: 'ses-dual', dir: dirs.project }],
+      presetScopes: true,
+    });
+    try {
+      const agentRow = (await harness.list()).find((skill) => skill.name === 'dual-skill');
+      assert.equal(agentRow?.provider, 'workspace-scope');
+      assert.equal(agentRow.invocation.userInvocable, false);
+
+      const coldRow = (await harness.coldList(dirs.project)).find((skill) => skill.name === 'dual-skill');
+      assert.equal(coldRow?.provider, 'workspace-scope');
+      assert.equal(coldRow.invocation.userInvocable, false, 'preset 层与 agent 层结论必须一致');
     } finally {
       await harness.dispose();
     }

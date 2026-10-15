@@ -141,3 +141,82 @@ test('get：按 path 读回正文；路径缺失或读取失败时返回 undefin
     await rm(base, { recursive: true, force: true });
   }
 });
+
+test('list：scope 参数优先于 agent（preset 层注册用 preset scope key）', async () => {
+  const presetKey = { name: 'preset-1' };
+  const calls = [];
+  const provider = createShadowProvider({
+    skills: {
+      list: async (options) => {
+        calls.push(options);
+        return [];
+      },
+    },
+    scope: presetKey,
+    agent: { id: '不该被用到' },
+    providerName: 'workspace-scope',
+    resolvePolicy: async () => ({ stateOf: () => 'pinned' }),
+  });
+
+  assert.deepEqual(await provider.list({ cwd: '/x' }), []);
+  assert.equal(calls[0].scope, presetKey, '内层读必须用 preset scope，不是 agent');
+});
+
+test('list：内层读新写入的目录缓存被丢弃，原有条目保留', async () => {
+  const cache = new Map([['existing', { entries: 'keep-me' }]]);
+  const provider = createShadowProvider({
+    skills: {
+      collectCache: cache,
+      async list() {
+        // 注册表在内层 collect 结束时写入的"未降级目录"（跨实例时没人覆盖它）。
+        cache.set('inner', { entries: '未降级目录' });
+        return [];
+      },
+    },
+    scope: { name: 'preset-1' },
+    providerName: 'workspace-scope',
+    resolvePolicy: async () => ({ stateOf: () => 'pinned' }),
+  });
+
+  assert.deepEqual(await provider.list({ cwd: '/x' }), []);
+  assert.equal(cache.has('inner'), false, '未降级目录不得留在缓存里被冷读命中');
+  assert.deepEqual(cache.get('existing'), { entries: 'keep-me' }, '别人的缓存条目不动');
+});
+
+test('list：注册表没有 collectCache（宿主结构变化）时仍正常降级', async () => {
+  const provider = createShadowProvider({
+    skills: {
+      list: async () => [
+        { name: 'gone', description: '描述', source: 'custom', path: '/x/gone/SKILL.md', invocation: { modelInvocable: true, userInvocable: true } },
+      ],
+    },
+    scope: { name: 'preset-1' },
+    providerName: 'workspace-scope',
+    resolvePolicy: async () => ({ stateOf: (name) => (name === 'gone' ? 'off' : 'pinned') }),
+  });
+
+  const rows = await provider.list({ cwd: '/x' });
+  assert.equal(rows.length, 1);
+  assert.deepEqual(rows[0].invocation, { modelInvocable: false, userInvocable: false });
+});
+
+test('list：内层读期间 collectCache 被并发调用换掉时，不去动别人的表', async () => {
+  const original = new Map();
+  const swapped = new Map([['x', 1]]);
+  const provider = createShadowProvider({
+    skills: {
+      collectCache: original,
+      async list() {
+        // 模拟并发：字段在 await 期间被换掉。
+        this.collectCache = swapped;
+        return [];
+      },
+    },
+    scope: { name: 'preset-1' },
+    providerName: 'workspace-scope',
+    resolvePolicy: async () => ({ stateOf: () => 'pinned' }),
+  });
+
+  assert.deepEqual(await provider.list({ cwd: '/x' }), []);
+  assert.equal(swapped.has('x'), true, '不碰并发换上的那张表');
+});
