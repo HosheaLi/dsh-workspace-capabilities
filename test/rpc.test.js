@@ -6,6 +6,7 @@
  */
 
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -114,6 +115,34 @@ test('没有 Connection 时退化栅栏：非回环 Host / 跨站 Origin 一律 
   assert.equal(noOrigin.status, 200, '回环无 Origin（同进程客户端）必须放行');
 });
 
+test('没有 Connection 时退化栅栏：形如回环的域名必须拒绝（DNS rebinding）', async () => {
+  // 回归：回环判定曾用 `/^127\./` 前缀匹配，于是 `127.0.0.1.evil.com` / `127.0.0.1.nip.io`
+  // 这类「DNS 记录由攻击者控制、却长得像 127. 开头」的域名会被当成回环放行 —— 页面从该域名
+  // 加载即同源，请求却落到本机回环上，这正是 DNS rebinding。判定必须只认四段十进制 IPv4。
+  const { ctx, routes } = makeCtx();
+  registerRpcSurface({ ctx, methods: { ping: async () => 'pong' }, logger });
+  const route = routes.get(RPC_PATH);
+  const json = (host) => ({ host, origin: `http://${host}`, 'content-type': 'application/json' });
+  const body = JSON.stringify({ method: 'ping' });
+
+  for (const host of ['127.0.0.1.evil.com:19387', '127.0.0.1.nip.io:19387', '128.0.0.1:19387', '126.0.0.1:19387']) {
+    const denied = await call(route, { headers: json(host), body });
+    assert.equal(denied.status, 403, `${host} 不是回环字面量，必须拒绝`);
+    assert.notEqual(denied.body, 'pong', `${host} 不得执行到 RPC 处理体`);
+  }
+
+  // 127/8 的合法四段字面量仍要放行，别为了堵 rebinding 把整段误杀
+  for (const host of ['127.9.9.9:19387', '127.0.0.1:19387']) {
+    const ok = await call(route, { headers: json(host), body });
+    assert.equal(ok.status, 200, `${host} 在 127/8 内，是回环`);
+    assert.equal(JSON.parse(ok.body).value, 'pong');
+  }
+
+  // WHATWG 规范化会把尾点去掉，`127.0.0.1.` 就是回环 —— 这是解析器的既定行为，不是绕过。
+  const trailingDot = await call(route, { headers: json('127.0.0.1.:19387'), body });
+  assert.equal(trailingDot.status, 200, '尾点被规范化成回环字面量');
+});
+
 test('有 Connection 时逐请求过栅栏，而不是注册时判断一次', async () => {
   let checks = 0;
   const connection = {
@@ -168,7 +197,12 @@ async function makeHostEnv() {
   await mkdir(join(home, 'settings'), { recursive: true });
   await mkdir(join(project, '.git'), { recursive: true });
   await mkdir(loose, { recursive: true });
-  return { base, home, project, loose };
+  /**
+   * 面板工作区清单的替身。真实宿主里是 `ctx.workspaceRegistry`（dsh-workspace），插件的
+   * `requireScope` 只接受这份清单 ∪ 活动会话 cwd 里的目录 —— 见 `lib/rpc.js`。
+   */
+  const registry = (...paths) => ({ list: () => paths.map((path, index) => ({ id: `w-${index}`, title: path, path })) });
+  return { base, home, project, loose, registry };
 }
 
 /** 造一个 host ctx 替身 + 方法表。 */
@@ -209,6 +243,11 @@ test('createRpcMethods：cwd 必须是存在的绝对目录', async () => {
     }
     await assert.rejects(() => methods.state({ cwd: join(env.base, 'missing') }), /cwd 目录不存在或不是目录/);
 
+    // 已存在、但不在面板工作区清单里：同样必须拒绝。否则任意一个已存在的目录都会被
+    // `findProjectRoot` 兜底当成项目根，本插件随即在它下面 `mkdir -p` 出 .dsh/ 并写配置。
+    await assert.rejects(() => methods.state({ cwd: env.loose }), /cwd 不在工作区清单里/);
+    assert.equal(existsSync(join(env.loose, '.dsh')), false, '被拒绝的 cwd 不得留下任何目录');
+
     const file = join(env.base, 'a-file.json');
     await writeFile(file, '{}', 'utf8');
     await assert.rejects(() => methods.state({ cwd: file }), /cwd 目录不存在或不是目录/, '文件不是目录');
@@ -220,7 +259,8 @@ test('createRpcMethods：cwd 必须是存在的绝对目录', async () => {
 test('createRpcMethods：写盘层选择与 layer 校验', async () => {
   const env = await makeHostEnv();
   try {
-    const { methods } = makeMethods({ home: env.home });
+    // homedir 也要进清单，才能走到 `targetOf` 的"项目根等于 home"那条分支。
+    const { methods } = makeMethods({ home: env.home, workspaceRegistry: env.registry(env.project, env.loose, homedir()) });
 
     await assert.rejects(
       () => methods.setSkill({ cwd: env.project, name: 'demo', state: 'off', layer: 'nope' }),
@@ -250,7 +290,7 @@ test('createRpcMethods：写盘层选择与 layer 校验', async () => {
 test('createRpcMethods：setSkill / setDefault / setMcp 的参数校验', async () => {
   const env = await makeHostEnv();
   try {
-    const { methods } = makeMethods({ home: env.home });
+    const { methods } = makeMethods({ home: env.home, workspaceRegistry: env.registry(env.project) });
     const cwd = env.project;
 
     await assert.rejects(() => methods.setSkill({ cwd, name: '', state: 'off' }), /name 必须是非空字符串/);
@@ -325,7 +365,7 @@ test('createRpcMethods：state 汇总技能与 MCP，并只在同工作区有 ag
     assert.equal(state.mcp.every((server) => server.visibleTools === server.toolCount), true);
 
     // 2) 没有该工作区的 agent：不报可见数，也不退回别的 agent
-    const strayMethods = makeMethods({ home: env.home, agents: [], schemas }).methods;
+    const strayMethods = makeMethods({ home: env.home, agents: [], schemas, workspaceRegistry: env.registry(env.project) }).methods;
     const stray = await strayMethods.state({ cwd: env.project });
     assert.equal(stray.mcpProbe, undefined);
     assert.equal(stray.mcp.every((server) => server.visibleTools === undefined), true);

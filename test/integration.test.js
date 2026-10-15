@@ -91,7 +91,7 @@ async function waitFor(predicate, { timeoutMs = 2000, stepMs = 10 } = {}) {
  *   `agentPresets` 替身（`generations` 指向本 harness 的 preset standing scope），
  *   用来验证"没有活动 agent 的冷读也按工作区策略降级"。
  */
-async function makeHarness({ dshHome, customDir, projects, presetScopes = false }) {
+async function makeHarness({ dshHome, customDir, projects, presetScopes = false, workspacePaths } = {}) {
   const [{ Context }, scope, skillPlugin, fsPlugin, toolsModule] = await Promise.all([
     load('@deepseek-ai/cordis'),
     load('@deepseek-ai/dsh-scope'),
@@ -103,6 +103,16 @@ async function makeHarness({ dshHome, customDir, projects, presetScopes = false 
   const root = new Context();
   const agents = [];
   root.provide('agents', { list: () => agents });
+  /**
+   * 面板工作区清单的替身。真实宿主里是 `ctx.workspaceRegistry`（dsh-workspace），插件把它与
+   * 活动会话的 cwd 取并集当作"可配置工作区"的准入清单 —— 所以**没有活动会话的工作区**
+   * 也必须靠它才对面板可见。只在用例需要时挂上，其余用例保持"只有活动会话"的最小环境。
+   */
+  if (workspacePaths !== undefined) {
+    root.provide('workspaceRegistry', {
+      list: () => workspacePaths.map((path, index) => ({ id: `w-${index}`, title: path, path })),
+    });
+  }
   root.provide('systemPrompt', {
     tools: () => () => {},
     section: () => () => {},
@@ -470,7 +480,15 @@ integrationTest('面板 RPC：state / setSkill 写盘即时生效，无需重启
   await withEnv(async ({ dshHome, customDir, dirs }) => {
     await writeSkill(join(dshHome, 'skills'), 'toggle-skill');
 
-    const harness = await makeHarness({ dshHome, customDir, projects: [{ id: 'ses-a', dir: dirs.project }] });
+    // 没有活动会话的工作区也要能被面板选中：真实宿主里它来自 workspaceRegistry。
+    const stray = join(dirs.project, '..', 'stray');
+    await mkdir(join(stray, '.git'), { recursive: true });
+    const harness = await makeHarness({
+      dshHome,
+      customDir,
+      projects: [{ id: 'ses-a', dir: dirs.project }],
+      workspacePaths: [stray],
+    });
     try {
       const before = await harness.callRpc('state', { cwd: dirs.project });
       assert.equal(before.ok, true, JSON.stringify(before));
@@ -497,8 +515,6 @@ integrationTest('面板 RPC：state / setSkill 写盘即时生效，无需重启
       assert.equal(restored.invocation.modelInvocable, true, '清除显式配置后回落到 default=pinned');
 
       // 没有活动会话的工作区：不能拿别的 agent 顶替着报"可见性"，必须如实说没有探针。
-      const stray = join(dirs.project, '..', 'stray');
-      await mkdir(join(stray, '.git'), { recursive: true });
       const strayState = await harness.callRpc('state', { cwd: stray });
       assert.equal(strayState.ok, true, JSON.stringify(strayState));
       assert.equal(strayState.value.mcpProbe, undefined, '没有该工作区的 agent 就不该报可见工具数');
@@ -641,11 +657,15 @@ integrationTest('没有 live agent 的工作区：不得借用别处的技能目
   await withEnv(async ({ dshHome, customDir, dirs }) => {
     await writeSkill(join(dirs.project, '.dsh', 'skills'), 'proj-only');
 
-    const harness = await makeHarness({ dshHome, customDir, projects: [{ id: 'ses-a', dir: dirs.project }] });
+    const stray = join(dirs.project, '..', 'stray');
+    await mkdir(join(stray, '.git'), { recursive: true });
+    const harness = await makeHarness({
+      dshHome,
+      customDir,
+      projects: [{ id: 'ses-a', dir: dirs.project }],
+      workspacePaths: [stray],
+    });
     try {
-      const stray = join(dirs.project, '..', 'stray');
-      await mkdir(join(stray, '.git'), { recursive: true });
-
       const state = await harness.callRpc('state', { cwd: stray });
       assert.equal(state.ok, true, JSON.stringify(state));
       assert.equal(state.value.scope.cwd, stray, '返回的 cwd 必须是请求的那个工作区');
@@ -674,6 +694,27 @@ integrationTest('cwd 不存在时拒绝，且不得在虚构路径上建目录�
       assert.match(denied.error, /不存在|不是目录/);
       assert.equal(existsSync(join(ghost, '.dsh', 'skills-scope.json')), false, '不得在虚构路径上写盘');
       assert.equal(existsSync(ghost), false, '不得创建该目录本身');
+    } finally {
+      await harness.dispose();
+    }
+  });
+});
+
+integrationTest('cwd 不在工作区清单里时拒绝：不得在任意目录下建 .dsh/ 写配置', async () => {
+  // 回归：`findProjectRoot` 找不到 `.git` 时兜底返回原 cwd，于是"存在且是目录"这条校验
+  // 挡不住任何东西 —— 机器上任何已存在的目录都会被当成项目根，本插件随即在它下面
+  // `mkdir -p` 出 `.dsh/` 并写一份配置。默认写盘层是项目层，所以副作用落在那个目录里。
+  await withEnv(async ({ dshHome, customDir, dirs }) => {
+    const harness = await makeHarness({ dshHome, customDir, projects: [{ id: 'ses-a', dir: dirs.project }] });
+    try {
+      const outsider = join(dirs.project, '..', 'outsider');
+      await mkdir(outsider, { recursive: true });
+
+      const denied = await harness.callRpc('setSkill', { cwd: outsider, name: 'outsider-skill', state: 'off' });
+      assert.equal(denied.ok, false, '未登记的工作区必须被拒绝');
+      assert.match(denied.error, /工作区清单/);
+      assert.equal(existsSync(join(outsider, '.dsh', 'skills-scope.json')), false, '不得在任意目录写配置');
+      assert.equal(existsSync(join(outsider, '.dsh')), false, '不得创建 .dsh 目录');
     } finally {
       await harness.dispose();
     }

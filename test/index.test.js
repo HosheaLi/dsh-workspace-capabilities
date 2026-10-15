@@ -74,6 +74,10 @@ function makeCtx({ agents = [], schemas = [] } = {}) {
       if (service === 'webServer') {
         return { register: (route) => { routes.set(route.path, route); return () => routes.delete(route.path); } };
       }
+      // 真实 Cordis ctx 里 `get(name)` 与 `ctx.<name>` 都能拿到注入的服务；插件的
+      // `listWorkspaces()` 走 `get('agents')`，面板 RPC 的 cwd 准入清单依赖它。
+      if (service === 'agents') return { list: () => agents };
+      if (service === 'tools') return { schemas: () => schemas, get: () => undefined };
       return undefined;
     },
     agents: { list: () => agents },
