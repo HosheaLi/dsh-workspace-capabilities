@@ -1,7 +1,7 @@
 # 架构与实现要点
 
 > 面向维护者。使用者视角看仓库根 [`README.md`](../README.md)；开发与测试口径看 [`development.md`](development.md)。
-> 宿主基线：`@deepseek-ai/*` **0.2.0-rc.2**（App 自带运行时）。第 2、3 节里依赖宿主内部结构的结论，
+> 宿主基线：`@deepseek-ai/*` **0.2.1-rc.2**（App 自带运行时，2026-10-17 复核）。第 2、3 节里依赖宿主内部结构的结论，
 > 在宿主升级后必须重新验证（复核手段见 `development.md` 的「探针」一节）。其中两处是**未公开的私有
 > 结构、失效时完全静默**，升级后要重点看：`skills.collectCache`（`lib/skills.js` 内层读的缓存丢弃）
 > 与 `agentPresets.generations`（`lib/preset.js` 的 preset 层绑定）。
@@ -41,19 +41,21 @@
 
 ### 2.1 目录不是系统提示词，是一条 durable 用户消息
 
-链路（`@deepseek-ai/*` 0.2.0-rc.2，路径为解包运行时）：
+链路（`@deepseek-ai/*` 0.2.1-rc.2，路径为解包运行时）：
 
-1. `dsh-agent-loop/lib/index.js:951-957` —— 一个 turn 内**每个 step 循环**调用 `preStep()`
+1. `dsh-agent-loop/lib/index.js:956-959` —— 一个 turn 内**每个 step 循环**调用 `preStep()`
    （`step = phase.step + 1`），不是每轮对话一次。
 2. `dsh-agent-loop/lib/index.js:902-918` —— `preStep()` 先 `inbox.claim()` 取这一步新输入，
    再 `systemPrompt.assemble()`，最后 `dispatch.waterfall('agent/pre-step', …)` 交给中间件链。
-3. `dsh-tool-skill/lib/index.js:203-235` —— 该中间件在**每一个模型步**：
+3. `dsh-tool-skill/lib/index.js:931-963` —— 该中间件在**每一个模型步**：
    `ctx.skills.snapshot({cwd, scope: agent})` → 过滤 `isModelInvocable` → 算条目 digest →
    与「本会话最后一次发布的目录」比对。
-4. digest 变了：首次发 `renderCatalogMessage`（`index.js:238`），之后发 `renderCatalogUpdate`
-   （`index.js:262`）—— 后者是**带全量 `<available_skills>` 的替代声明**，文字是
+   0.2.1 起这里的 `cwd` 来自 `ctx.workingDirectory.ensure(agent, signal)`，
+   不再直接读 `session.header.cwd`（见 2.5）。
+4. digest 变了：首次发 `renderCatalogMessage`（`index.js:966`），之后发 `renderCatalogUpdate`
+   （`index.js:990`）—— 后者是**带全量 `<available_skills>` 的替代声明**，文字是
    "This complete catalog replaces every earlier available-skills list in this session"。
-5. `dsh-agent-loop/lib/index.js:1061` —— 产生的消息以 `user/message` + `surfaceOp: 'append'`
+5. `dsh-agent-loop/lib/index.js:1069-1073` —— 产生的消息以 `user/message` + `surfaceOp: 'append'`
    写进会话。
 
 结论：**目录是会话里的一条普通 user 消息**，不是系统提示词的一部分，也不是每轮重新渲染的临时块。
@@ -77,10 +79,10 @@
 
 | 事实 | 含义 |
 | --- | --- |
-| `update` 消息是**追加**，不是就地替换（`catalogMessage()` 只扫描**这一步**的 claimed 消息，历史里的旧目录不在其中，`index.js:349`） | 会话里目录消息**只增不减**，每条都是全量。改 k 次 ≈ 永久多 k 份目录，直到压缩（compaction）动到它 |
+| `update` 消息是**追加**，不是就地替换（`catalogMessage()` 只扫描**这一步**的 claimed 消息，历史里的旧目录不在其中，`index.js:1077`） | 会话里目录消息**只增不减**，每条都是全量。改 k 次 ≈ 永久多 k 份目录，直到压缩（compaction）动到它 |
 | `update` 带**全量**条目，不是差量 | 小幅改动和大幅改动都追加一整份；31 条技能 ≈ 4.5k 字符/份 |
-| digest 没变时**完全静默**（`index.js:222`） | 写盘但没有实质变化 → 零成本。反之「关掉又打开」= 两次完整追加 |
-| 压缩把目录消息移出 surface 后，`catalogHistory()`（`index.js:331`）拿不到 `visibleDigest`，下一步会**重新追加一份完整目录** | 运行时既定行为，插件无法阻止；只能让目录本身更小（此条为代码推断，未实测） |
+| digest 没变时**完全静默**（`index.js:950`） | 写盘但没有实质变化 → 零成本。反之「关掉又打开」= 两次完整追加 |
+| 压缩把目录消息移出 surface 后，`catalogHistory()`（`index.js:1059`）拿不到 `visibleDigest`，下一步会**重新追加一份完整目录** | 运行时既定行为，插件无法阻止；只能让目录本身更小（此条为代码推断，未实测） |
 
 本机量级（2026-10-11）：两处全局技能根共 30 个技能，本会话目录 31 条（含包内置 office 三件套），
 `<available_skills>` 条目合计 **4.46k 字符**；按英文 3.8 字符/token ≈ **1.2k token**，若目录里中文
@@ -92,10 +94,10 @@ tokenizer 计数。
 | 路径 | 生效时机 | 证据 |
 | --- | --- | --- |
 | 模型目录 `<available_skills>` | **下一个模型步**（同一回合内继续调工具的那一步也算） | 2.2 的实测：写盘后 step 3 立刻拿到新目录 |
-| `skill` 工具 | 调用时现查注册表：`list()` → `isModelInvocable` → `get()` | `dsh-tool-skill/lib/index.js:138-160` |
-| `/技能名` 手势 | 发消息那一步现查：`isUserInvocable` 为 false 则**静默跳过**，不注入正文 | `index.js:168-200`（`continue` 分支） |
-| 输入框 `/` 候选菜单 | 宿主 `SessionSkillCatalog.list`（没有活动 agent 时用 preset standing scope 冷读）→ **客户端按 sessionId 缓存**，只在切换 agent preset 或连接重置时失效 | `dsh-client-ui-skill/lib/client.js:323`（`fetches` Map）、`:364`（`invalidate`）、`:429`（`agent-preset/selected`）、`:430`（`connection/reset` → `clearAll`） |
-| 面板写盘 → 目录缓存 | **无 TTL 延迟**：`writeLayer()` 里 `policy.invalidate()` + `notifyChanged()` → 注册表 `revision++`（`dsh-skill/lib/index.js:377`）使 `collectCache` 里按 revision 派生的键整体失效（同文件 `269-270`、`395-399`） | `lib/rpc.js:144-153`、`lib/index.js:114-129` |
+| `skill` 工具 | 调用时现查注册表：`list()` → `isModelInvocable` → `get()` | `dsh-tool-skill/lib/index.js:866-889` |
+| `/技能名` 手势 | 发消息那一步现查：`isUserInvocable` 为 false 则**静默跳过**，不注入正文 | `index.js:900-931`（`continue` 分支） |
+| 输入框 `/` 候选菜单 | 宿主 `SessionSkillCatalog.list`（没有活动 agent 时用 preset standing scope 冷读）→ **客户端按 sessionId 缓存**，只在切换 agent preset 或连接重置时失效 | `dsh-client-ui-skill/lib/client.js:367`（`fetches` Map）、`:408`（`invalidate`）、`:482`（`agent-preset/selected`）、`:484`（`connection/reset` → `clearAll`） |
+| 面板写盘 → 目录缓存 | **无 TTL 延迟**：`writeLayer()` 里 `policy.invalidate()` + `notifyChanged()` → 注册表 `revision++`（`dsh-skill/lib/index.js:377`）使 `collectCache` 里按 revision 派生的键整体失效（同文件 `269-270`、`395-400`） | `lib/rpc.js:144-153`、`lib/index.js:114-129` |
 
 **不需要重启 App、不需要重开会话** —— 与「改 `cordis.patch.yml` 要重启」是两回事。
 
@@ -111,6 +113,26 @@ provider 的原因 —— 否则被关掉的技能照样出现在菜单里，选
 - **不会让模型「忘掉」旧名单**：替代声明明确写了 "Use only names in this replacement catalog"，
   模型拿到的是权威新名单；旧消息里的失效名字按运行时规则作废。
 - **不会影响其他会话的既有目录**：每个会话各自持有自己的目录消息；改动只对「之后发生的模型步」生效。
+
+### 2.5 宿主 0.2.1 新增：会话内可切换工作目录（本插件尚未适配）
+
+0.2.1 起 `dsh-working-directory` 把「会话当前目录」做成独立投影，`dsh-tool-working-directory`
+提供 `working_directory` 工具（`cd`）。宿主的技能读取因此统一改成
+`ctx.workingDirectory.ensure(agent, signal)` 求 cwd（`dsh-tool-skill` 的 `inject` 也随之多了
+`workingDirectory`，见 `dsh-tool-skill/lib/index.js:762-767`）——**技能的 cwd 跟随会话当前目录**。
+
+本插件的技能降级恰好跟得上：shadow provider 用的是宿主传进来的 `options.cwd`（见第 4 节）。
+但另外两处仍按 `agent.session.header.cwd`（会话**初始**目录）求作用域：
+
+- `lib/index.js` 的 `denyForAgent()`（MCP 屏蔽）：`cd` 之后不会重算，只在 `tools/change` 时补偿；
+- `lib/rpc.js` 的 `listWorkspaces()` / 面板 MCP 探针，以及 `lib/catalog.js` 里按 cwd 找 agent 的
+  匹配：跨工作区 `cd` 后，面板会把这部分视图标成 preset/global 回落。
+
+后果只出现在**跨工作区 `cd`**：同一项目子目录内切换时项目根不变、配置结论一致，行为没有差异。
+尚未适配；要补的话，把上述三处换成「优先 `ctx.get('workingDirectory')?.get(agent.session)`，
+回落到 `session.header.cwd`」，并解决 MCP 屏蔽的重算时机 —— 目录切换在会话里记为
+`working-directory/change` 事件，可监听 `ctx.on('session/event')`（宿主是在事件追加时 emit 的，
+`dsh-agent-loop/lib/index.js:319` 有同样用法）在该会话上重新 `restrictor.apply(agent)`。
 
 ## 3. 实现要点
 
@@ -138,7 +160,7 @@ provider 的原因 —— 否则被关掉的技能照样出现在菜单里，选
   只记一条 warn），启动期用有界重试（8 次 × 250ms）兜住「preset 定义注册晚于本插件 apply」
   的装配顺序。
 - **同层内 rank 0 必胜**：官方文件系统根的 rank 是 100/200/300/400/500（项目 `.dsh` / 项目
-  `.agents` / 自定义 / 用户 `.dsh` / 用户 `.agents`，见 `dsh-skill-filesystem/lib/index.js:21-25`），
+  `.agents` / 自定义 / 用户 `.dsh` / 用户 `.agents`，见 `dsh-skill-filesystem/lib/index.js:20-24`），
   本地 bundled 根是 600（`dsh-skill/lib/index.js:23`），`compareIndexedCandidates` 按 rank 升序取
   先到者，所以同层里本插件的降级候选稳定赢过原候选。
 

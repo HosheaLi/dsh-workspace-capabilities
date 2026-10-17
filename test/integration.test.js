@@ -1,5 +1,5 @@
 /**
- * 集成测试：在**真实**的 0.2.0-rc.2 运行时上验证三条机制。
+ * 集成测试：在**真实**的 0.2.1-rc.2 运行时上验证三条机制。
  *
  * 运行前需要一份从 App 包解出来的运行时（`app.asar/dsh`）：
  *   DSH_RUNTIME_DIR=/tmp/dshref/runtime npm test

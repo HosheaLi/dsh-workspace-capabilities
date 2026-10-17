@@ -6,6 +6,24 @@
 > [`docs/archive/2026-10-11-workspace-capabilities-panel-plan.md`](docs/archive/2026-10-11-workspace-capabilities-panel-plan.md)）。
 > 项目转入迭代维护阶段时统一起见，**当前状态重新编号为 `0.0.1`**，此后按语义化版本递增。
 
+## [未发布] - 2026-10-17
+
+### 兼容
+
+- **适配宿主 `0.2.1-rc.2`**（App 2026-10-17 更新）。插件依赖的宿主契约未变：
+  `dsh-skill` 注册表（`collectCache` / `revision` / provider 协议）、`agentPresets.generations`、
+  `tools.restrict`、`connection.requestRejection`、两个 client slot 的声明与 props 均与
+  `0.2.0-rc.2` 一致。实测：单测 108/108、集成 22/22、目录发布探针全部通过。
+- 集成 harness 与探针补 `workingDirectory` 服务替身：`dsh-tool-skill` 在 0.2.1 的 `inject` 新增
+  该服务，缺它时宿主插件不装配，目录发布用例会静默变成「0 条发布」。
+- 文档同步宿主基线到 `0.2.1-rc.2`，并按新运行时复核 `architecture.md` 第 2、3 节的宿主行号。
+
+### 已知限制
+
+- 0.2.1 新增「会话内切换工作目录」（`working_directory` 工具）。技能可见性跟随新目录，但 MCP
+  屏蔽与面板的工作区选择仍以会话初始 cwd 为准；跨工作区 `cd` 后两者会不一致，尚未适配。
+  详见 `docs/architecture.md` 2.5。
+
 ## [0.0.1] - 2026-10-15
 
 首个基线版本：功能已在真实宿主上手工验收可用，代码与文档完成一轮整理归档。

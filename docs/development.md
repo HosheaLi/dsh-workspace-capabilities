@@ -35,7 +35,7 @@ npm test
 # 只跑纯 JS 单测（无宿主依赖）
 npm run test:unit
 
-# 只跑集成测试：在真实 0.2.0-rc.2 运行时上跑
+# 只跑集成测试：在真实 0.2.1-rc.2 运行时上跑
 # 缺运行时（/tmp/dshref/runtime 不存在）时整体 skip，所以新克隆直接 npm test 不会变红
 DSH_RUNTIME_DIR=/tmp/dshref/runtime npm run test:integration
 
@@ -105,6 +105,11 @@ filesystem provider、preset 层绑定（scope 探测、幂等、retired/重建�
 
 宿主升级后这几条最先应该响 —— 它们锁的正是「反复改技能会让会话膨胀」这个非直觉事实。
 
+搭台细节：0.2.1 起 `dsh-tool-skill` 的 `inject` 多了 `workingDirectory`，集成 harness 与探针
+都给了一个最小替身（`ensure(agent) => agent.session.header.cwd`）。**宿主再新增 inject 服务时，
+这两处也要补** —— 缺服务不会报错，只会让宿主插件不装配，目录用例表现为「0 条发布」，
+看起来像本插件回归。
+
 ## 探针
 
 `tools/probe-skill-catalog-publish.mjs` 是研究探针，**不属于 `npm test`**（它验证的是宿主行为，
@@ -137,7 +142,8 @@ DSH_RUNTIME_DIR=/tmp/dshref/runtime node tools/probe-skill-catalog-publish.mjs
 - [ ] 没引入 `@deepseek-ai/*` 运行时依赖（`package.json` 的 `dependencies` 必须为空）
 - [ ] 若升级了宿主：重跑 `tools/probe-skill-catalog-publish.mjs`，并重点确认两处**未公开私有结构**
       仍存在 —— `skills.collectCache`（内层读缓存丢弃）与 `agentPresets.generations`（preset 层
-      绑定）；两者失效时是**静默**退化的
+      绑定）；两者失效时是**静默**退化的。同时按新运行时复核 `architecture.md` 里的宿主行号
+      与 `dsh-tool-skill` 的 `inject` 列表（缺服务时 harness 要补替身）
 - [ ] `git diff` 里没有密钥、token、本机绝对路径里的真实用户名
 - [ ] 文档与实现同步：`README.md`（使用者）/ `architecture.md`（机制）/ `development.md`（本文件）
 - [ ] 用户可见的变化追加到 `CHANGELOG.md`

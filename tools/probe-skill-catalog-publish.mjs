@@ -85,6 +85,9 @@ root.provide('systemPrompt', {
   tools: () => () => {}, section: () => () => {}, context: () => () => {}, variable: () => () => {},
   getSectionOrder: () => 0, getContextOrder: () => 0, assemble: async () => ({ sections: [] }),
 });
+// 0.2.1 起 dsh-tool-skill 的 inject 多了 workingDirectory（它用这个服务求 cwd），缺了它
+// 宿主插件根本不会装配，探针会看到"一条目录消息都不发布"。
+root.provide('workingDirectory', { ensure: async (agent) => agent?.session?.header?.cwd });
 const routes = new Map();
 root.provide('webServer', { register: (route) => { routes.set(route.path, route); return () => routes.delete(route.path); } });
 root.provide('connection', { requestRejection: () => undefined });

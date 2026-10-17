@@ -7,7 +7,7 @@
 
 - 版本 `0.0.1`（迭代维护起点，变更见 [`CHANGELOG.md`](CHANGELOG.md)）
 - 零运行时依赖：host 半边只用 node 内置模块，client 半边只依赖平台种子 `react`
-- 宿主基线 `@deepseek-ai/*` 0.2.0-rc.2
+- 宿主基线 `@deepseek-ai/*` 0.2.1-rc.2（2026-10-17 复核）
 
 ## 三种状态
 

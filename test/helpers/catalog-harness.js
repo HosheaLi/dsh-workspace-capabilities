@@ -119,6 +119,11 @@ export async function makeCatalogHarness({ dshHome, customDir, projectDir, agent
     getContextOrder: () => 0,
     assemble: async () => ({ sections: [] }),
   });
+  // 宿主 0.2.1 起 `dsh-tool-skill` 的 inject 多了 workingDirectory（目录发布用它求 cwd）。
+  // 缺这个服务时该插件根本不装配，目录消息一条也不会发布 —— 那不是被测插件的回归。
+  root.provide('workingDirectory', {
+    ensure: async (agent) => agent?.session?.header?.cwd,
+  });
 
   /** 面板 RPC 的替身载体：捕获 host 注册的 exact 路由（`webServer` 是真实注册点）。 */
   const routes = new Map();
