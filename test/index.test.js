@@ -31,6 +31,9 @@ async function waitFor(predicate, { timeoutMs = 1000, stepMs = 5 } = {}) {
  */
 function makeAgent(id, cwd, options = {}) {
   const record = { restricts: [], bound: 0 };
+  /** 当前生效的 deny 名单（disposer 会清空，便于观察"撤销"而不是只看到调用序列）。 */
+  let activeDeny = [];
+  record.currentDeny = () => activeDeny;
   const skills = {
     list: async () => [],
     registerProvider: options.registerProvider ?? ((callback) => {
@@ -42,19 +45,22 @@ function makeAgent(id, cwd, options = {}) {
   const tools = {
     restrict: ({ deny }) => {
       record.restricts.push([...deny]);
-      return () => {};
+      activeDeny = [...deny];
+      return () => {
+        activeDeny = [];
+      };
     },
   };
   const agent = {
     id,
-    session: { header: { cwd } },
+    session: options.session ?? { header: { cwd } },
     ctx: { get: (service) => (service === 'skills' ? skills : service === 'tools' ? tools : undefined) },
   };
   return { agent, record };
 }
 
 /** stub host ctx：事件、effect、服务与命令式 RPC 载体。 */
-function makeCtx({ agents = [], schemas = [] } = {}) {
+function makeCtx({ agents = [], schemas = [], workingDirectory } = {}) {
   const listeners = new Map();
   const effects = [];
   const warns = [];
@@ -77,6 +83,7 @@ function makeCtx({ agents = [], schemas = [] } = {}) {
       // 真实 Cordis ctx 里 `get(name)` 与 `ctx.<name>` 都能拿到注入的服务；插件的
       // `listWorkspaces()` 走 `get('agents')`，面板 RPC 的 cwd 准入清单依赖它。
       if (service === 'agents') return { list: () => agents };
+      if (service === 'workingDirectory') return workingDirectory;
       if (service === 'tools') return { schemas: () => schemas, get: () => undefined };
       return undefined;
     },
@@ -88,8 +95,8 @@ function makeCtx({ agents = [], schemas = [] } = {}) {
     warns,
     routes,
     effects,
-    emit: (event, payload) => {
-      for (const callback of listeners.get(event) ?? []) callback(payload);
+    emit: (event, ...args) => {
+      for (const callback of listeners.get(event) ?? []) callback(...args);
     },
     cleanup: () => {
       for (const disposer of [...effects].reverse()) if (typeof disposer === 'function') disposer();
@@ -223,6 +230,54 @@ test('面板 RPC 写盘后：目录缓存失效 + MCP 重算；provider/dispose 
     const ok = await callRpc(fourth.routes, { method: 'setSkill', args: { cwd: project, name: 'y', state: 'off' } });
     assert.equal(ok.ok, true, 'invalidate 抛错不得让写盘失败');
     assert.match(fourth.warns.join('\n'), /目录缓存失效失败/);
+  } finally {
+    if (previousHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previousHome;
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test('会话内 cd：working-directory/change 后按新目录重算 MCP 屏蔽', async () => {
+  const { base, home, project } = await makeEnv();
+  const other = join(base, 'other');
+  const previousHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = home;
+  try {
+    await mkdir(join(other, '.git'), { recursive: true });
+    await writeFile(
+      join(project, '.dsh', 'skills-scope.json'),
+      JSON.stringify({ version: 1, default: 'pinned', skills: {}, mcp: { comfy: false } }),
+    );
+
+    const session = { header: { cwd: project } };
+    let current = project;
+    const workingDirectory = { get: () => current };
+    const { agent, record } = makeAgent('agent-1', project, { session });
+    const schemas = [{ name: 'mcp__comfy__generate' }, { name: 'bash' }];
+    const { ctx, emit } = makeCtx({ agents: [agent], schemas, workingDirectory });
+
+    apply(ctx);
+    assert.ok(await waitFor(() => record.currentDeny().length > 0), '初始目录应按配置 deny');
+    assert.deepEqual(record.currentDeny(), ['mcp__comfy__generate']);
+
+    // 切换前先确认无关事件不触发重算。
+    const before = record.restricts.length;
+    emit('session/event', session, { type: 'user/message' });
+    emit('session/event', session); // event 缺失也不能抛
+    emit('session/event', { header: {} }, { type: 'working-directory/change' }); // 不属于任何 agent
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(record.restricts.length, before, '非目录切换事件 / 无主会话不得重算');
+
+    // 切到没有配置的 other：comfy 默认启用，旧 deny 必须撤销。
+    current = other;
+    emit('session/event', session, { type: 'working-directory/change', data: { cwd: other } });
+    assert.ok(await waitFor(() => record.currentDeny().length === 0), '切到启用 comfy 的工作区后必须撤销 deny');
+
+    // 切回来：重新按 project 的配置 deny。
+    current = project;
+    emit('session/event', session, { type: 'working-directory/change', data: { cwd: project } });
+    assert.ok(await waitFor(() => record.currentDeny().length === 1), '切回原目录必须重新 deny');
+    assert.deepEqual(record.currentDeny(), ['mcp__comfy__generate']);
   } finally {
     if (previousHome === undefined) delete process.env.DSH_HOME;
     else process.env.DSH_HOME = previousHome;

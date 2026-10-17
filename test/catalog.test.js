@@ -196,6 +196,34 @@ test('collectCatalog：agent 视图、preset 兜底、global 兜底，且只认 
   assert.match(emptyPreset.notice ?? '', /全局层/);
 });
 
+test('collectCatalog：按 agent 的**当前** cwd 选中（0.2.1 的 cd 之后 header.cwd 不再代表工作区）', async () => {
+  const calls = [];
+  const rows = [{ name: 'agent-skill', description: 'd', source: 'custom', path: '/x/SKILL.md', invocation: { modelInvocable: true, userInvocable: true } }];
+  const session = { header: { cwd: '/initial' } };
+  const agent = {
+    id: 'ses-a',
+    session,
+    ctx: { get: () => ({ list: async (options) => { calls.push(options); return rows; } }) },
+  };
+  const ctx = {
+    get: (name) => {
+      if (name === 'agents') return { list: () => [agent] };
+      if (name === 'workingDirectory') return { get: (value) => (value === session ? '/current' : undefined) };
+      return undefined;
+    },
+    skills: { list: async () => [] },
+  };
+
+  const current = await collectCatalog(ctx, { cwd: '/current' });
+  assert.equal(current.via, 'agent', '当前目录匹配时必须采用 agent 视图');
+  assert.equal(current.cwd, '/current', '读取按当前目录，而不是初始目录');
+  assert.equal(calls[0].cwd, '/current', 'skills.list 必须收到当前目录');
+
+  const initial = await collectCatalog(ctx, { cwd: '/initial' });
+  assert.notEqual(initial.via, 'agent', '初始目录不再代表这个 agent 的工作区，不得借用');
+  assert.equal(initial.cwd, '/initial', '回落视图仍按请求的目录读取');
+});
+
 test('stripFrontmatter：只有分隔行、没有正文时也算拒绝', () => {
   // 首行 `---` 之后紧跟空行：循环自然走完（lineStart 越过长度），返回 undefined。
   assert.equal(stripFrontmatter('---\n\n'), undefined);

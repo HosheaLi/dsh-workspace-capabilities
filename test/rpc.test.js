@@ -206,11 +206,12 @@ async function makeHostEnv() {
 }
 
 /** 造一个 host ctx 替身 + 方法表。 */
-function makeMethods({ home, agents = [], schemas = [], workspaceRegistry, onChanged } = {}) {
+function makeMethods({ home, agents = [], schemas = [], workspaceRegistry, workingDirectory, onChanged } = {}) {
   const visible = new Set(schemas.map((schema) => schema.name));
   const ctx = {
     get: (name) => {
       if (name === 'workspaceRegistry') return workspaceRegistry;
+      if (name === 'workingDirectory') return workingDirectory;
       if (name === 'agents') return { list: () => agents };
       return undefined;
     },
@@ -335,6 +336,63 @@ test('createRpcMethods：workspaces 合并注册表与会话 cwd 并去重', asy
     assert.equal(workspaces[1].title, '/w/b');
     assert.equal(workspaces[2].title, 'dir', '会话工作区用最后一段做标题');
     assert.equal(workspaces[2].id, 'session:ses-2');
+  } finally {
+    await rm(env.base, { recursive: true, force: true });
+  }
+});
+
+test('createRpcMethods：workspaces 用会话的**当前** cwd（cd 之后初始目录不再代表它）', async () => {
+  const env = await makeHostEnv();
+  try {
+    const sessionA = { header: { cwd: '/w/a' } };
+    const sessions = new Map([[sessionA, '/w/current']]);
+    const workingDirectory = { get: (session) => sessions.get(session) ?? session?.header?.cwd };
+    const agents = [
+      { id: 'ses-1', session: sessionA },
+      { id: 'ses-2', session: { header: { cwd: '/sessions/initial' } } },
+    ];
+    const { methods } = makeMethods({
+      home: env.home,
+      agents,
+      workingDirectory,
+      workspaceRegistry: env.registry('/w/current'),
+    });
+    const { workspaces } = await methods.workspaces();
+
+    assert.deepEqual(workspaces.map((workspace) => workspace.path), ['/w/current', '/sessions/initial'], '当前目录优先，且与注册表去重');
+    assert.equal(workspaces[0].title, '/w/current');
+  } finally {
+    await rm(env.base, { recursive: true, force: true });
+  }
+});
+
+test('createRpcMethods：cd 之后用当前目录匹配 agent 视图与 MCP 探针', async () => {
+  const env = await makeHostEnv();
+  try {
+    const schemas = [{ name: 'mcp__comfy__generate' }];
+    const session = { header: { cwd: env.project } };
+    const workingDirectory = { get: () => env.loose };
+    const agent = {
+      id: 'ses-a',
+      session,
+      ctx: { get: (service) => (service === 'skills' ? { list: async () => [SKILL_ROW] } : undefined) },
+    };
+    const { methods } = makeMethods({
+      home: env.home,
+      agents: [agent],
+      schemas,
+      workingDirectory,
+      workspaceRegistry: env.registry(env.project, env.loose),
+    });
+
+    const current = await methods.state({ cwd: env.loose });
+    assert.equal(current.catalog.via, 'agent', '当前目录匹配的 agent 视图必须被采用');
+    assert.equal(current.mcpProbe?.agentId, 'ses-a', 'MCP 探针按当前目录找同工作区 agent');
+    assert.equal(current.mcp[0].visibleTools, 1);
+
+    const initial = await methods.state({ cwd: env.project });
+    assert.equal(initial.mcpProbe, undefined, '初始目录已经没有 live agent，不得拿别处的 agent 顶替');
+    assert.notEqual(initial.catalog.via, 'agent');
   } finally {
     await rm(env.base, { recursive: true, force: true });
   }

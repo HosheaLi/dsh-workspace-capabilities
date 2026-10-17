@@ -29,7 +29,7 @@ cordis.patch.yml        bundle patch：把 host 半边插进 profile 的 host �
 ## 测试
 
 ```bash
-# 全部：108 单测 + 22 集成 = 130 passed / 0 failed / 0 skipped
+# 全部：117 单测 + 23 集成 = 140 passed / 0 failed / 0 skipped
 npm test
 
 # 只跑纯 JS 单测（无宿主依赖）
@@ -39,7 +39,7 @@ npm run test:unit
 # 缺运行时（/tmp/dshref/runtime 不存在）时整体 skip，所以新克隆直接 npm test 不会变红
 DSH_RUNTIME_DIR=/tmp/dshref/runtime npm run test:integration
 
-# 覆盖率（9 个 lib 文件）
+# 覆盖率（10 个 lib 文件）
 DSH_RUNTIME_DIR=/tmp/dshref/runtime node --test --experimental-test-coverage "test/**/*.test.js"
 ```
 
@@ -56,20 +56,21 @@ mkdir -p /tmp/dshref && mv /tmp/dshref-extract/dsh /tmp/dshref/runtime
 
 ## 覆盖率口径
 
-2026-10-15 实测（`0.0.1` 基线）：**行 100.00% / 分支 89.9–90.1%（会抖，见下）/ 函数 97.45%**。
+2026-10-17 实测（`0.2.1-rc.2` 适配后）：**行 100.00% / 分支 90.3–90.4%（会抖，见下）/ 函数 97.48%**。
 
 | 文件 | 行 | 分支 | 函数 |
 | --- | --- | --- | --- |
-| `catalog.js` | 100.00 | 90.43 | 100.00 |
+| `catalog.js` | 100.00 | 90.63 | 100.00 |
 | `client.js` | 100.00 | 84.33 | 94.68 |
-| `config.js` | 100.00 | 91.43 | 96.67 |
-| `index.js` | 100.00 | 90.00 | 100.00 |
-| `mcp.js` | 100.00 | 95.00 | 100.00 |
+| `config.js` | 100.00 | 92.03 | 96.67 |
+| `cwd.js` | 100.00 | 100.00 | 100.00 |
+| `index.js` | 100.00 | 91.89 | 100.00 |
+| `mcp.js` | 100.00 | 96.55 | 100.00 |
 | `policy.js` | 100.00 | 90.00 | 100.00 |
 | `preset.js` | 100.00 | 96.61 | 100.00 |
-| `rpc.js` | 100.00 | 92.27 | 100.00 |
+| `rpc.js` | 100.00 | 92.24 | 100.00 |
 | `skills.js` | 100.00 | 95.83 | 100.00 |
-| **all** | **100.00** | **89.9–90.1** | **97.45** |
+| **all** | **100.00** | **90.3–90.4** | **97.48** |
 
 表中的**分支**数字取自其中一次运行，会随时序抖动（下面第 2 条）；`config.js` / `mcp.js` /
 `rpc.js` 三行的分支比例因此也会小幅移动，**行覆盖稳定 100.00%** —— 门禁看的是行。
@@ -80,9 +81,10 @@ mkdir -p /tmp/dshref && mv /tmp/dshref-extract/dsh /tmp/dshref/runtime
    早先用 `?t=<n>` 绕 ESM 缓存会让同一文件产生多个脚本实例，而覆盖率报告只保留其中一个，
    数字会被压低一半以上，补测试也看不出来。
 2. **分支覆盖会小幅浮动**：加 preset 层**之前**复跑 13 次实测 89.44%（11 次）/ 89.34%（1 次）/
-   89.24%（1 次）；加上 preset 层之后复跑落在 89.9–90.1%。波动来自既有 `config.js` / `mcp.js` 里
-   依赖时序的分支命中与否（**行覆盖稳定 100.00%**），与面板那轮改动无关。判断分支覆盖是否退化，
-   看的是「行覆盖是否仍 100%」而不是小数第二位。
+   89.24%（1 次）；加上 preset 层之后落在 89.9–90.1%，0.2.1 适配（`cwd.js` + 目录切换补偿）之后
+   落在 90.3–90.4%。波动来自既有 `config.js` / `mcp.js` / `rpc.js` 里依赖时序的分支命中与否
+   （**行覆盖稳定 100.00%**），与面板那轮改动无关。判断分支覆盖是否退化，看的是「行覆盖是否仍
+   100%」而不是小数第二位。
 
 ## 集成测试锁住什么
 
@@ -93,7 +95,8 @@ filesystem provider、preset 层绑定（scope 探测、幂等、retired/重建�
 枚举不漏降级、MCP deny（含迟到注册补偿与反复切换不卡死）、面板 RPC 全链路（鉴权栅栏逐请求
 生效、写盘即时生效、不存在的 cwd 直接拒绝且不写盘、**不在工作区清单里的 cwd 同样拒绝且不在
 那里建 `.dsh/`**、并发写不丢更新、`default` 不被物化、损坏配置拒写、**跨层清除不假成功**）、
-面板在无 live agent 的工作区不借用别处目录。
+面板在无 live agent 的工作区不借用别处目录、**会话内 `cd` 后技能目录按当前目录读且 MCP 屏蔽
+重新计算**（面板工作区清单与 MCP 探针同步跟随）。
 
 `test/integration-catalog.test.js` 另锁五条**宿主发布语义**（见 `architecture.md` 2.2）：
 
@@ -130,13 +133,15 @@ DSH_RUNTIME_DIR=/tmp/dshref/runtime node tools/probe-skill-catalog-publish.mjs
 1. 重启 App → 设置 → 工作区能力；
 2. 勾选 3 个技能 → 批量设为「仅手动」→ 应用；
 3. 打开该工作区的一个会话发一条消息；
-4. 会话里应只出现**一条** update 目录消息，且不含这 3 个技能。
+4. 会话里应只出现**一条** update 目录消息，且不含这 3 个技能；
+5. （0.2.1+）在会话里让模型用 `working_directory` 工具 `cd` 到另一个项目目录：MCP 开关与
+   技能可见性应按新目录生效，面板工作区列表应出现新目录（原目录仍在侧边栏工作区里）。
 
 ## 维护检查清单
 
 改完准备提交前：
 
-- [ ] `npm test` 全绿（130 passed / 0 skipped）
+- [ ] `npm test` 全绿（140 passed / 0 skipped）
 - [ ] 覆盖率**行**仍是 100.00%
 - [ ] 新增/修改的行为有对应用例（非平凡逻辑走 RED → GREEN，不写 fixture 框架）
 - [ ] 没引入 `@deepseek-ai/*` 运行时依赖（`package.json` 的 `dependencies` 必须为空）

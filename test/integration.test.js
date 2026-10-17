@@ -104,6 +104,14 @@ async function makeHarness({ dshHome, customDir, projects, presetScopes = false,
   const agents = [];
   root.provide('agents', { list: () => agents });
   /**
+   * 会话当前目录的替身：0.2.1 的 `workingDirectory` 服务只读投影状态，这里用 WeakMap 模拟。
+   * 插件靠它把「会话内 cd」与 `session.header.cwd`（初始目录）分开。
+   */
+  const workingDirectories = new WeakMap();
+  root.provide('workingDirectory', {
+    get: (session) => workingDirectories.get(session) ?? session?.header?.cwd,
+  });
+  /**
    * 面板工作区清单的替身。真实宿主里是 `ctx.workspaceRegistry`（dsh-workspace），插件把它与
    * 活动会话的 cwd 取并集当作"可配置工作区"的准入清单 —— 所以**没有活动会话的工作区**
    * 也必须靠它才对面板可见。只在用例需要时挂上，其余用例保持"只有活动会话"的最小环境。
@@ -213,6 +221,11 @@ async function makeHarness({ dshHome, customDir, projects, presetScopes = false,
     presetKey,
     presetScope,
     callRpc,
+    /** 模拟 0.2.1 的会话内 cd：更新当前目录，并按宿主语义追加 `working-directory/change` 事件。 */
+    setWorkingDirectory(agent, path) {
+      workingDirectories.set(agent.session, path);
+      root.emit('session/event', agent.session, { type: 'working-directory/change', data: { cwd: path } });
+    },
     skillsOf: (index = 0) => bound[index].agentScope.ctx.get('skills'),
     /** 冷读：**host 全局实例** + preset scope，逐字复刻 `SessionSkillCatalog.list` 的回落分支。 */
     coldList: (cwd) => root.get('skills').list({ cwd, scope: presetKey }),
@@ -475,6 +488,81 @@ integrationTest('MCP：按工作区 deny，重连（迟到注册）后仍被 den
     }
   });
 }, { projects: ['project', 'other'] });
+
+integrationTest('会话内 cd：技能目录按当前目录读，MCP 屏蔽按当前目录重算', async () => {
+  await withEnv(async ({ dshHome, customDir, dirs }) => {
+    await writeJson(join(dirs.project, '.dsh', 'skills-scope.json'), {
+      version: 1,
+      default: 'pinned',
+      skills: {},
+      mcp: { comfy: false },
+    });
+    // other 工作区把 other-skill 标成 manual：证明技能读按**当前**目录的策略。
+    await writeJson(join(dirs.other, '.dsh', 'skills-scope.json'), {
+      version: 1,
+      default: 'pinned',
+      skills: { 'other-skill': 'manual' },
+      mcp: {},
+    });
+    await writeSkill(join(dirs.project, '.dsh', 'skills'), 'project-skill');
+    await writeSkill(join(dirs.other, '.dsh', 'skills'), 'other-skill');
+
+    const harness = await makeHarness({ dshHome, customDir, projects: [{ id: 'ses-a', dir: dirs.project }] });
+    const { defineContentToolFixture } = await load('@deepseek-ai/dsh-tools');
+    const disposeTool = harness.root.tools.register(
+      defineContentToolFixture({
+        name: 'mcp__comfy__generate',
+        description: 'comfy 测试工具',
+        parameters: {},
+        execute: async () => ({ content: [{ type: 'text', text: 'x' }] }),
+      }),
+    );
+    try {
+      const agent = harness.bound[0].agent;
+      assert.ok(
+        await waitFor(() => harness.root.tools.get('mcp__comfy__generate', agent) === undefined),
+        '初始目录应被 project 的配置 deny',
+      );
+      const before = await harness.callRpc('workspaces');
+      assert.deepEqual(before.value.workspaces.map((workspace) => workspace.path), [dirs.project]);
+
+      // 模拟宿主的 cd：当前目录变成 other，宿主追加 working-directory/change。
+      harness.setWorkingDirectory(agent, dirs.other);
+
+      assert.ok(
+        await waitFor(() => harness.root.tools.get('mcp__comfy__generate', agent) !== undefined),
+        'cd 到启用 comfy 的工作区后必须解除 deny',
+      );
+
+      // 技能降级按当前目录求策略：other 的 manual 配置必须生效。
+      const rows = new Map((await harness.skillsOf().list({ cwd: dirs.other, scope: agent })).map((row) => [row.name, row]));
+      assert.equal(rows.get('other-skill')?.invocation.modelInvocable, false, 'other 的 manual 配置必须按当前目录生效');
+      assert.equal(rows.get('other-skill')?.provider, 'workspace-scope');
+      assert.equal(rows.has('project-skill'), false, '不得混入初始目录的技能');
+
+      // 面板：工作区清单、agent 视图、MCP 探针都必须跟到当前目录。
+      const workspaces = await harness.callRpc('workspaces');
+      assert.deepEqual(workspaces.value.workspaces.map((workspace) => workspace.path), [dirs.other]);
+      const state = await harness.callRpc('state', { cwd: dirs.other });
+      assert.equal(state.ok, true, JSON.stringify(state));
+      assert.equal(state.value.catalog.via, 'agent');
+      assert.equal(state.value.mcpProbe?.agentId, 'ses-a');
+      assert.equal(state.value.mcp.find((server) => server.name === 'comfy').visibleTools, 1);
+
+      // 切回原目录：deny 恢复，面板也回到原工作区。
+      harness.setWorkingDirectory(agent, dirs.project);
+      assert.ok(
+        await waitFor(() => harness.root.tools.get('mcp__comfy__generate', agent) === undefined),
+        '切回 project 后必须重新 deny',
+      );
+      const back = await harness.callRpc('workspaces');
+      assert.deepEqual(back.value.workspaces.map((workspace) => workspace.path), [dirs.project]);
+    } finally {
+      disposeTool();
+      await harness.dispose();
+    }
+  }, { projects: ['project', 'other'] });
+});
 
 integrationTest('面板 RPC：state / setSkill 写盘即时生效，无需重启或新开会话', async () => {
   await withEnv(async ({ dshHome, customDir, dirs }) => {

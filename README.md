@@ -145,17 +145,22 @@ DSH_RUNTIME_DIR=/tmp/dshref/runtime node tools/probe-skill-catalog-publish.mjs
 
 **冷读路径**：没有任何活动会话时，面板与 `/` 菜单的目录来自 preset 作用域，本插件在 preset 层
 同样注册了降级 provider，结论与 agent 读一致；面板会把该目录标为 `incomplete` 并说明来源。
-面板**只认与所选工作区 cwd 完全匹配的 agent**，不会借用别处的目录展示。
+面板**只认与所选工作区当前 cwd 完全匹配的 agent**，不会借用别处的目录展示。
+
+**会话内切换目录（0.2.1 起）**：会话可以用 `working_directory` 工具 `cd`，此时
+`session.header.cwd` 只是初始目录。本插件一律按**当前**目录求策略：技能降级跟随宿主的读取目录，
+MCP 屏蔽在 `working-directory/change` 后重算，面板的工作区清单与 MCP 探针也按当前目录匹配；
+旧宿主没有这个服务时静默回落到会话初始 cwd，行为不变。
 
 ## 开发与测试
 
 ```bash
-npm test               # 108 单测 + 22 集成 = 130 passed / 0 failed
+npm test               # 117 单测 + 23 集成 = 140 passed / 0 failed
 npm run test:unit      # 只跑纯 JS 单测（无宿主依赖）
 npm run test:integration   # 只跑集成测试，需先在 /tmp/dshref/runtime 解包运行时
 ```
 
-覆盖率（2026-10-15 实测）：**行 100.00% / 分支 ≈90%（实测 89.9–90.1，会抖）/ 函数 97.45%**。
+覆盖率（2026-10-17 实测）：**行 100.00% / 分支 ≈90%（实测 90.3–90.4，会抖）/ 函数 97.48%**。
 测试入口、覆盖率口径与
 波动说明、手工验收清单、维护检查清单见 [`docs/development.md`](docs/development.md)。
 

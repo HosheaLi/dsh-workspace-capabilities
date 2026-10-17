@@ -14,6 +14,7 @@
 | `lib/policy.js` | 按 cwd 求生效策略：两级配置读取 + 1 秒 TTL 进程内缓存 + 代际（写盘后作废在途读） |
 | `lib/config.js` | 路径解析、归一化、合并、精确/通配符匹配、原子串行写入 |
 | `lib/catalog.js` | 目录枚举（三视图并集）、可管理性判定、正文读取、面板排序、目录体量估算 |
+| `lib/cwd.js` | 会话当前工作目录：优先 `workingDirectory` 投影（0.2.1 的 `cd`），回落 `session.header.cwd` |
 | `lib/skills.js` | **agent 层** shadow provider（三态降级的核心落点） |
 | `lib/preset.js` | **preset 层** shadow provider 绑定（无活动 agent 的冷读路径） |
 | `lib/mcp.js` | MCP 工具 deny 名单推导 + `tools.restrict` 施加器 |
@@ -114,25 +115,33 @@ provider 的原因 —— 否则被关掉的技能照样出现在菜单里，选
   模型拿到的是权威新名单；旧消息里的失效名字按运行时规则作废。
 - **不会影响其他会话的既有目录**：每个会话各自持有自己的目录消息；改动只对「之后发生的模型步」生效。
 
-### 2.5 宿主 0.2.1 新增：会话内可切换工作目录（本插件尚未适配）
+### 2.5 宿主 0.2.1 新增：会话内可切换工作目录（已适配）
 
 0.2.1 起 `dsh-working-directory` 把「会话当前目录」做成独立投影，`dsh-tool-working-directory`
 提供 `working_directory` 工具（`cd`）。宿主的技能读取因此统一改成
 `ctx.workingDirectory.ensure(agent, signal)` 求 cwd（`dsh-tool-skill` 的 `inject` 也随之多了
-`workingDirectory`，见 `dsh-tool-skill/lib/index.js:762-767`）——**技能的 cwd 跟随会话当前目录**。
+`workingDirectory`，见 `dsh-tool-skill/lib/index.js:762-767`）——**技能的 cwd 跟随会话当前目录**，
+`session.header.cwd` 只剩「创建时的初始目录」这一层含义。
 
-本插件的技能降级恰好跟得上：shadow provider 用的是宿主传进来的 `options.cwd`（见第 4 节）。
-但另外两处仍按 `agent.session.header.cwd`（会话**初始**目录）求作用域：
+本插件因此把所有「按工作区求作用域」的入口收敛到 `lib/cwd.js` 的 `effectiveCwdOf(ctx, agent)`：
+优先 `ctx.get('workingDirectory').get(session)`，取不到或抛错时回落 `session.header.cwd`
+（旧宿主没有这个服务，行为与 0.2.0 完全一致）。四个调用点：
 
-- `lib/index.js` 的 `denyForAgent()`（MCP 屏蔽）：`cd` 之后不会重算，只在 `tools/change` 时补偿；
-- `lib/rpc.js` 的 `listWorkspaces()` / 面板 MCP 探针，以及 `lib/catalog.js` 里按 cwd 找 agent 的
-  匹配：跨工作区 `cd` 后，面板会把这部分视图标成 preset/global 回落。
+| 位置 | 用途 |
+| --- | --- |
+| `lib/index.js` `denyForAgent()` | MCP 屏蔽按当前目录的 `mcp` 配置算 deny 名单 |
+| `lib/rpc.js` `listWorkspaces()` | 面板工作区清单里会话那一行用当前目录（注册表仍提供历史工作区） |
+| `lib/rpc.js` 面板 MCP 探针 | 「同工作区」判据改成当前目录，`cd` 后不会拿别处 agent 顶替 |
+| `lib/catalog.js` `collectCatalog()` | agent 视图的匹配与读取都按当前目录（`cd` 到子目录时项目根仍由 policy 解析） |
 
-后果只出现在**跨工作区 `cd`**：同一项目子目录内切换时项目根不变、配置结论一致，行为没有差异。
-尚未适配；要补的话，把上述三处换成「优先 `ctx.get('workingDirectory')?.get(agent.session)`，
-回落到 `session.header.cwd`」，并解决 MCP 屏蔽的重算时机 —— 目录切换在会话里记为
-`working-directory/change` 事件，可监听 `ctx.on('session/event')`（宿主是在事件追加时 emit 的，
-`dsh-agent-loop/lib/index.js:319` 有同样用法）在该会话上重新 `restrictor.apply(agent)`。
+重算时机：目录切换在会话里记为 `working-directory/change` 事件，插件监听
+`ctx.on('session/event')`，按 session 对象身份找到 agent 后重新 `restrictor.apply(agent)`
+（宿主在事件追加时 emit，`dsh-agent-loop/lib/index.js:319` 有同样用法）。技能目录不需要插件
+额外失效 —— 宿主下一个模型步会用 `workingDirectory.ensure` 得到的新 cwd 重新 `snapshot()`。
+
+注意：面板的「当前目录」与 DSH 侧边栏的「工作区」不是同一个概念。`cd` 只改变本插件判策略与
+匹配 agent 的目录；会话仍归属它创建时的工作区（侧边栏、`workspaceRegistry` 不变），所以面板
+工作区清单是注册表（历史工作区）∪ 各活动会话的当前目录。
 
 ## 3. 实现要点
 
