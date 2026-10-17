@@ -20,6 +20,7 @@ import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 
 import * as plugin from '../lib/index.js';
+import { createWorkingDirectoryStub } from './helpers/working-directory.js';
 
 const RUNTIME = process.env.DSH_RUNTIME_DIR ?? '/tmp/dshref/runtime';
 
@@ -105,12 +106,11 @@ async function makeHarness({ dshHome, customDir, projects, presetScopes = false,
   root.provide('agents', { list: () => agents });
   /**
    * 会话当前目录的替身：0.2.1 的 `workingDirectory` 服务只读投影状态，这里用 WeakMap 模拟。
-   * 插件靠它把「会话内 cd」与 `session.header.cwd`（初始目录）分开。
+   * 插件靠它的 `get` 把「会话内 cd」与 `session.header.cwd`（初始目录）分开；`ensure` 同时
+   * 供 `dsh-tool-skill` 的 pre-step 求 cwd（缺它宿主插件不装配，目录消息不会发布）。
    */
-  const workingDirectories = new WeakMap();
-  root.provide('workingDirectory', {
-    get: (session) => workingDirectories.get(session) ?? session?.header?.cwd,
-  });
+  const workingDirectory = createWorkingDirectoryStub();
+  root.provide('workingDirectory', workingDirectory);
   /**
    * 面板工作区清单的替身。真实宿主里是 `ctx.workspaceRegistry`（dsh-workspace），插件把它与
    * 活动会话的 cwd 取并集当作"可配置工作区"的准入清单 —— 所以**没有活动会话的工作区**
@@ -223,7 +223,7 @@ async function makeHarness({ dshHome, customDir, projects, presetScopes = false,
     callRpc,
     /** 模拟 0.2.1 的会话内 cd：更新当前目录，并按宿主语义追加 `working-directory/change` 事件。 */
     setWorkingDirectory(agent, path) {
-      workingDirectories.set(agent.session, path);
+      workingDirectory.set(agent.session, path);
       root.emit('session/event', agent.session, { type: 'working-directory/change', data: { cwd: path } });
     },
     skillsOf: (index = 0) => bound[index].agentScope.ctx.get('skills'),
@@ -557,6 +557,19 @@ integrationTest('会话内 cd：技能目录按当前目录读，MCP 屏蔽按�
       );
       const back = await harness.callRpc('workspaces');
       assert.deepEqual(back.value.workspaces.map((workspace) => workspace.path), [dirs.project]);
+
+      // 项目内子目录 cd：作用域（项目根）不变 —— 面板不该把子目录单列成工作区，也不该因此
+      // 匹配不到会话（那样会退回 preset 视图并提示"没有活动会话"）。
+      const subdir = join(dirs.project, 'src');
+      await mkdir(subdir, { recursive: true });
+      harness.setWorkingDirectory(agent, subdir);
+      const inProject = await harness.callRpc('workspaces');
+      assert.deepEqual(inProject.value.workspaces.map((workspace) => workspace.path), [dirs.project], '子目录不是独立工作区');
+      const subState = await harness.callRpc('state', { cwd: dirs.project });
+      assert.equal(subState.ok, true, JSON.stringify(subState));
+      assert.equal(subState.value.catalog.via, 'agent', '子目录 cd 后仍按项目根匹配到会话');
+      assert.equal(subState.value.mcpProbe?.agentId, 'ses-a');
+      assert.equal(subState.value.mcp.find((server) => server.name === 'comfy').visibleTools, 0, '子目录仍按 project 的配置 deny');
     } finally {
       disposeTool();
       await harness.dispose();

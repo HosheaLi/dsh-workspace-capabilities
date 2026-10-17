@@ -6,9 +6,12 @@
  */
 
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
-import { effectiveCwdOf } from '../lib/cwd.js';
+import { agentScopeMatch, effectiveCwdOf, scopeRootOf } from '../lib/cwd.js';
 
 /** 造一个最小 agent（只带 session）。 */
 const agentOf = (cwd) => ({ id: 'ses-a', session: { header: { cwd } } });
@@ -46,4 +49,49 @@ test('effectiveCwdOf：连 header 都没有时返回 undefined', () => {
   assert.equal(effectiveCwdOf(undefined, { session: {} }), undefined);
   assert.equal(effectiveCwdOf(undefined, { session: { header: {} } }), undefined);
   assert.equal(effectiveCwdOf(undefined, { session: { header: { cwd: 123 } } }), undefined, 'header.cwd 非字符串不算数');
+});
+
+/** 临时目录：`<base>/project/.git` + `<base>/project/src` + `<base>/other`（无 .git）。 */
+async function makeRoots() {
+  const base = await mkdtemp(join(tmpdir(), 'wscope-cwd-'));
+  const project = join(base, 'project');
+  await mkdir(join(project, '.git'), { recursive: true });
+  await mkdir(join(project, 'src'), { recursive: true });
+  await mkdir(join(base, 'other'), { recursive: true });
+  return { base, project, sub: join(project, 'src'), other: join(base, 'other') };
+}
+
+test('scopeRootOf：当前目录解析到项目根，子目录与项目根同作用域', async () => {
+  const { base, project, sub, other } = await makeRoots();
+  try {
+    const ctx = { get: () => ({ get: () => sub }) };
+    assert.equal(await scopeRootOf(ctx, agentOf(project)), project, '子目录 cd 后作用域仍是项目根');
+    assert.equal(await scopeRootOf(undefined, agentOf(project)), project, '没有 workingDirectory 服务时用 header 解析');
+    assert.equal(await scopeRootOf(undefined, agentOf(other)), other, '没有 .git 祖先时项目根就是目录自身');
+    assert.equal(await scopeRootOf(undefined, { session: {} }), undefined, '没有目录时返回 undefined');
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test('agentScopeMatch：按项目根匹配，跨项目根与无效入参都不匹配', async () => {
+  const { base, project, sub, other } = await makeRoots();
+  try {
+    const inSub = { id: 'ses-sub', session: { header: { cwd: project } } };
+    const inOther = { id: 'ses-other', session: { header: { cwd: other } } };
+    const noCwd = { id: 'ses-none', session: {} };
+    const ctx = { get: () => ({ get: (session) => (session === inSub.session ? sub : undefined) }) };
+
+    assert.deepEqual(
+      await agentScopeMatch(ctx, project, [noCwd, inOther, inSub]),
+      { agent: inSub, cwd: sub },
+      '子目录 cd 的会话仍属于项目根，且返回它的当前目录',
+    );
+    assert.equal(await agentScopeMatch(ctx, other, [inSub]), undefined, '跨项目根不得借用');
+    assert.equal(await agentScopeMatch(ctx, '', [inSub]), undefined, '空 cwd 不匹配');
+    assert.equal(await agentScopeMatch(ctx, 42, [inSub]), undefined, '非字符串 cwd 不匹配');
+    assert.equal(await agentScopeMatch(ctx, project, undefined), undefined, '没有候选时返回 undefined');
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
 });

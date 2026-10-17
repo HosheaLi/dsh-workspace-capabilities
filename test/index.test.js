@@ -237,6 +237,46 @@ test('面板 RPC 写盘后：目录缓存失效 + MCP 重算；provider/dispose 
   }
 });
 
+test('会话内 cd：连续切换时在途 apply 不得用旧目录的结果覆盖最终目录', async () => {
+  const { base, home, project } = await makeEnv();
+  const other = join(base, 'other');
+  const previousHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = home;
+  try {
+    await mkdir(join(other, '.git'), { recursive: true });
+    await writeFile(
+      join(project, '.dsh', 'skills-scope.json'),
+      JSON.stringify({ version: 1, default: 'pinned', skills: {}, mcp: { comfy: false } }),
+    );
+
+    const session = { header: { cwd: project } };
+    let current = project;
+    const { agent, record } = makeAgent('agent-1', project, { session });
+    const schemas = [{ name: 'mcp__comfy__generate' }, { name: 'bash' }];
+    const { ctx, emit } = makeCtx({ agents: [agent], schemas, workingDirectory: { get: () => current } });
+
+    apply(ctx);
+    assert.ok(await waitFor(() => record.currentDeny().length === 1), '初始目录应按配置 deny');
+
+    // 同步连续切换：第一次的 apply 正在读盘（在途），第二次的调用会被 applicator 的哨兵
+    // 拦下。没有代际补偿时，在途那次会按 other（comfy 启用）落地，最终 deny 变成空。
+    current = other;
+    emit('session/event', session, { type: 'working-directory/change', data: { cwd: other } });
+    current = project;
+    emit('session/event', session, { type: 'working-directory/change', data: { cwd: project } });
+
+    assert.ok(await waitFor(() => record.currentDeny().length === 1), '最终结果必须按最后一次切换的目录重算');
+    assert.deepEqual(record.currentDeny(), ['mcp__comfy__generate']);
+    // 再等一会，确认没有滞后的在途结果把它改回去。
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.deepEqual(record.currentDeny(), ['mcp__comfy__generate'], '滞后落地的旧结果不得覆盖新结果');
+  } finally {
+    if (previousHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previousHome;
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
 test('会话内 cd：working-directory/change 后按新目录重算 MCP 屏蔽', async () => {
   const { base, home, project } = await makeEnv();
   const other = join(base, 'other');

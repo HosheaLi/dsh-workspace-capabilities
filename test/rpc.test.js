@@ -398,6 +398,72 @@ test('createRpcMethods：cd 之后用当前目录匹配 agent 视图与 MCP 探�
   }
 });
 
+test('createRpcMethods：子目录 cd 后仍按项目根匹配 agent 与 MCP 探针，且子目录不单列成工作区', async () => {
+  const env = await makeHostEnv();
+  try {
+    const sub = join(env.project, 'src');
+    await mkdir(sub, { recursive: true });
+    const schemas = [{ name: 'mcp__comfy__generate' }];
+    const agent = {
+      id: 'ses-a',
+      session: { header: { cwd: env.project } },
+      ctx: { get: (service) => (service === 'skills' ? { list: async () => [SKILL_ROW] } : undefined) },
+    };
+    const { methods } = makeMethods({
+      home: env.home,
+      agents: [agent],
+      schemas,
+      // 会话已经 cd 到项目子目录：原始 cwd 变了，作用域（项目根）没变。
+      workingDirectory: { get: () => sub },
+      workspaceRegistry: env.registry(env.project),
+    });
+
+    const { workspaces } = await methods.workspaces();
+    assert.deepEqual(workspaces.map((workspace) => workspace.path), [env.project], '子目录不是独立工作区');
+
+    const state = await methods.state({ cwd: env.project });
+    assert.equal(state.catalog.via, 'agent', '同项目根的会话视图必须被采用');
+    assert.equal(state.mcpProbe?.agentId, 'ses-a');
+    assert.equal(state.mcp[0].visibleTools, 1);
+
+    // 面板不再列出子目录，它也就不能作为独立作用域被请求。
+    await assert.rejects(() => methods.state({ cwd: sub }), /cwd 不在工作区清单里/);
+  } finally {
+    await rm(env.base, { recursive: true, force: true });
+  }
+});
+
+test('createRpcMethods：cd 进入的目录只可查看、不可写盘（不扩大插件写入面）', async () => {
+  const env = await makeHostEnv();
+  try {
+    const agent = viewAgent(env.loose, [SKILL_ROW]);
+    // 初始目录是 project（用户建的会话），当前目录被 cd 到 loose（模型可驱动）。
+    agent.session = { header: { cwd: env.project } };
+    const { methods } = makeMethods({
+      home: env.home,
+      agents: [agent],
+      workingDirectory: { get: () => env.loose },
+      workspaceRegistry: env.registry(env.project),
+    });
+
+    // 读：cd 到的目录可以看（面板要能展示它）。
+    const state = await methods.state({ cwd: env.loose });
+    assert.equal(state.mcpProbe?.agentId, 'ses-a', '同项目根仍然匹配会话');
+
+    // 写：cd 只改变查看与生效策略，不扩大写入面。
+    await assert.rejects(
+      () => methods.setSkill({ cwd: env.loose, name: 'demo', state: 'manual' }),
+      /cwd 不在可写的工作区清单里/,
+    );
+    assert.equal(existsSync(join(env.loose, '.dsh')), false, '被拒绝的目录不得留下任何目录');
+    // 用户声明的工作区照常可写。
+    const written = await methods.setDefault({ cwd: env.project, state: 'manual' });
+    assert.equal(written.layer, 'project');
+  } finally {
+    await rm(env.base, { recursive: true, force: true });
+  }
+});
+
 test('createRpcMethods：state 汇总技能与 MCP，并只在同工作区有 agent 时报可见数', async () => {
   const env = await makeHostEnv();
   try {

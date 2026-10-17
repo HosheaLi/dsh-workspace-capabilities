@@ -13,18 +13,21 @@
 - **适配宿主 `0.2.1-rc.2`**（App 2026-10-17 更新）。插件依赖的宿主契约未变：
   `dsh-skill` 注册表（`collectCache` / `revision` / provider 协议）、`agentPresets.generations`、
   `tools.restrict`、`connection.requestRejection`、两个 client slot 的声明与 props 均与
-  `0.2.0-rc.2` 一致。实测：单测 117/117、集成 23/23、目录发布探针全部通过。
+  `0.2.0-rc.2` 一致。实测：单测 122/122、集成 23/23、目录发布探针全部通过。
 - 集成 harness 与探针补 `workingDirectory` 服务替身：`dsh-tool-skill` 在 0.2.1 的 `inject` 新增
   该服务，缺它时宿主插件不装配，目录发布用例会静默变成「0 条发布」。
 - 文档同步宿主基线到 `0.2.1-rc.2`，并按新运行时复核 `architecture.md` 第 2、3 节的宿主行号。
 
 ### 功能
 
-- **适配 0.2.1 的会话内 `cd`**（`working_directory` 工具）：新增 `lib/cwd.js` 的
-  `effectiveCwdOf()` 作为「当前工作目录」的单一入口（优先 `workingDirectory` 投影，取不到时
-  回落 `session.header.cwd`，旧宿主行为不变）。MCP 屏蔽、面板工作区清单、面板 MCP 探针、
-  面板目录的 agent 匹配/读取全部改按当前目录；并监听 `session/event` 的
-  `working-directory/change` 重算 MCP deny。详见 `docs/architecture.md` 2.5。
+- **适配 0.2.1 的会话内 `cd`**（`working_directory` 工具）：新增 `lib/cwd.js` 作为「当前目录与
+  工作区归属」的单一入口 —— `effectiveCwdOf()`（优先 `workingDirectory` 投影，取不到时回落
+  `session.header.cwd`，旧宿主行为不变）、`scopeRootOf()` 与 `agentScopeMatch()`（与 policy 共用
+  `findProjectRoot` 规则）。MCP 屏蔽、面板工作区清单、面板 MCP 探针、面板目录的 agent 匹配与读取
+  全部改按当前目录；监听 `session/event` 的 `working-directory/change`，**先推进代际再重算** MCP
+  deny（否则在途 apply 会用旧目录落地、把结果卡在旧目录）。面板的**归属判定按项目根**：项目内
+  子目录 `cd` 不产生新的工作区行、也不丢失 agent 视图与 MCP 核对；**写盘准入仍是注册表 ∪ 会话
+  初始目录**，`cd` 进入的新目录只可查看，不扩大插件写入面。详见 `docs/architecture.md` 2.5。
 
 ## [0.0.1] - 2026-10-15
 

@@ -17,6 +17,7 @@ import { Readable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
 
 import * as plugin from '../../lib/index.js';
+import { createWorkingDirectoryStub } from './working-directory.js';
 
 /** 解包运行时目录（可用 `DSH_RUNTIME_DIR` 覆盖）。 */
 export const RUNTIME = process.env.DSH_RUNTIME_DIR ?? '/tmp/dshref/runtime';
@@ -121,9 +122,9 @@ export async function makeCatalogHarness({ dshHome, customDir, projectDir, agent
   });
   // 宿主 0.2.1 起 `dsh-tool-skill` 的 inject 多了 workingDirectory（目录发布用它求 cwd）。
   // 缺这个服务时该插件根本不装配，目录消息一条也不会发布 —— 那不是被测插件的回归。
-  root.provide('workingDirectory', {
-    ensure: async (agent) => agent?.session?.header?.cwd,
-  });
+  // 替身与 integration harness 共用一份（`get` 供本插件求当前目录，`ensure` 供宿主求 cwd），
+  // 只实现一半会让其中一条路径静默退化。
+  root.provide('workingDirectory', createWorkingDirectoryStub());
 
   /** 面板 RPC 的替身载体：捕获 host 注册的 exact 路由（`webServer` 是真实注册点）。 */
   const routes = new Map();

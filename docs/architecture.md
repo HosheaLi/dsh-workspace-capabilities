@@ -14,7 +14,7 @@
 | `lib/policy.js` | 按 cwd 求生效策略：两级配置读取 + 1 秒 TTL 进程内缓存 + 代际（写盘后作废在途读） |
 | `lib/config.js` | 路径解析、归一化、合并、精确/通配符匹配、原子串行写入 |
 | `lib/catalog.js` | 目录枚举（三视图并集）、可管理性判定、正文读取、面板排序、目录体量估算 |
-| `lib/cwd.js` | 会话当前工作目录：优先 `workingDirectory` 投影（0.2.1 的 `cd`），回落 `session.header.cwd` |
+| `lib/cwd.js` | 当前目录与工作区归属：`effectiveCwdOf`（投影优先、回落 header）+ `scopeRootOf` / `agentScopeMatch`（按项目根判定） |
 | `lib/skills.js` | **agent 层** shadow provider（三态降级的核心落点） |
 | `lib/preset.js` | **preset 层** shadow provider 绑定（无活动 agent 的冷读路径） |
 | `lib/mcp.js` | MCP 工具 deny 名单推导 + `tools.restrict` 施加器 |
@@ -123,25 +123,36 @@ provider 的原因 —— 否则被关掉的技能照样出现在菜单里，选
 `workingDirectory`，见 `dsh-tool-skill/lib/index.js:762-767`）——**技能的 cwd 跟随会话当前目录**，
 `session.header.cwd` 只剩「创建时的初始目录」这一层含义。
 
-本插件因此把所有「按工作区求作用域」的入口收敛到 `lib/cwd.js` 的 `effectiveCwdOf(ctx, agent)`：
+本插件因此把「当前目录」与「工作区归属」都收敛到 `lib/cwd.js`：`effectiveCwdOf(ctx, agent)`
 优先 `ctx.get('workingDirectory').get(session)`，取不到或抛错时回落 `session.header.cwd`
-（旧宿主没有这个服务，行为与 0.2.0 完全一致）。四个调用点：
+（旧宿主没有这个服务，行为与 0.2.0 完全一致）；`scopeRootOf()` 把它解析成**项目根**（与
+`policy.read` 共用 `config.js` 的 `findProjectRoot`）；`agentScopeMatch()` 是「哪个 agent 属于
+这个工作区」的唯一判定——按**项目根**比较，不是原始 cwd。四个调用点：
 
 | 位置 | 用途 |
 | --- | --- |
 | `lib/index.js` `denyForAgent()` | MCP 屏蔽按当前目录的 `mcp` 配置算 deny 名单 |
-| `lib/rpc.js` `listWorkspaces()` | 面板工作区清单里会话那一行用当前目录（注册表仍提供历史工作区） |
-| `lib/rpc.js` 面板 MCP 探针 | 「同工作区」判据改成当前目录，`cd` 后不会拿别处 agent 顶替 |
-| `lib/catalog.js` `collectCatalog()` | agent 视图的匹配与读取都按当前目录（`cd` 到子目录时项目根仍由 policy 解析） |
+| `lib/rpc.js` `listWorkspaces()` | 会话那一行用当前目录所属**项目根**（子目录 `cd` 不产生新行；注册表仍提供历史工作区） |
+| `lib/rpc.js` 面板 MCP 探针 | 「同工作区」按项目根判定：子目录 `cd` 仍能匹配到会话，跨项目根不拿别处 agent 顶替 |
+| `lib/catalog.js` `collectCatalog()` | agent 视图按项目根匹配、按 agent 的当前目录读取 |
 
 重算时机：目录切换在会话里记为 `working-directory/change` 事件，插件监听
-`ctx.on('session/event')`，按 session 对象身份找到 agent 后重新 `restrictor.apply(agent)`
-（宿主在事件追加时 emit，`dsh-agent-loop/lib/index.js:319` 有同样用法）。技能目录不需要插件
-额外失效 —— 宿主下一个模型步会用 `workingDirectory.ensure` 得到的新 cwd 重新 `snapshot()`。
+`ctx.on('session/event')`，按 session 对象身份找到 agent 后**先 `restrictor.noteChange()` 推进
+代际、再 `apply`**（宿主在事件追加时 emit，`dsh-agent-loop/lib/index.js:319` 有同样用法）。
+先推代际是必须的：`tools/change` 会并发地给所有 agent 各发一次 `apply`，在途那次 captured 的是
+旧目录，而 `cd` 触发的这次会被施加器的重入哨兵直接返回——不推代际，在途结果落地后 deny 会停在
+旧目录。技能目录不需要插件额外失效——宿主下一个模型步会用 `workingDirectory.ensure` 得到的
+新 cwd 重新 `snapshot()`。
 
-注意：面板的「当前目录」与 DSH 侧边栏的「工作区」不是同一个概念。`cd` 只改变本插件判策略与
-匹配 agent 的目录；会话仍归属它创建时的工作区（侧边栏、`workspaceRegistry` 不变），所以面板
-工作区清单是注册表（历史工作区）∪ 各活动会话的当前目录。
+**读与写用两份清单**：可**查看** = 注册表 ∪ 活动会话当前目录所属项目根；可**写** = 注册表 ∪
+活动会话**初始**目录所属项目根。`cd` 是模型可驱动的动作（`working_directory` 工具接受任意已
+存在目录），它只扩大查看与生效策略的范围，不扩大插件的写入面——否则模型把目录切到哪里，面板
+就能把 `.dsh/skills-scope.json` 写到哪里。因此 `cd` 进入的目录在面板里可以查看、可以据此核对
+MCP 屏蔽，但写操作会被拒绝（提示去侧边栏登记工作区，或在该目录下开会话再写）。
+
+注意：面板的「当前目录」与 DSH 侧边栏的「工作区」不是同一个概念。**归属判定单位是项目根**：
+会话 `cd` 到项目子目录时项目根不变，面板不把它列成另一个工作区、也不因此丢失 agent 视图；
+跨项目 `cd` 才会多出一行。会话在侧边栏的归属（`workspaceRegistry`）不因 `cd` 改变。
 
 ## 3. 实现要点
 
@@ -292,9 +303,9 @@ N 次单条写一旦跨过模型步就会变成 N 份目录。
 
 **冷读路径**：没有任何活动会话（或会话未绑定 agent preset）时，面板与 `/` 菜单的目录来自
 preset 作用域。本插件在 preset 层同样注册了 shadow provider，那里的 `manual`/`off` 降级与
-agent 读结论一致；面板仍会把该目录标为 `incomplete` 并说明来源。面板**只认与所选工作区 cwd
-完全匹配的 agent**：工作区没有活动会话时不会借用别处的 agent 视图，而是回落到 preset / 全局
-并在面板上说明（借用会让 A 的技能挂在 B 名下、用 B 的配置渲染）。
+agent 读结论一致；面板仍会把该目录标为 `incomplete` 并说明来源。面板**只认与所选工作区属于
+同一项目根的 agent**：工作区没有活动会话时不会借用别处项目的 agent 视图，而是回落到 preset /
+全局并在面板上说明（借用会让 A 的技能挂在 B 名下、用 B 的配置渲染）。
 
 **已知估算偏差**：`catalogCharsOf()` 复刻宿主渲染规则算字符数，但不做 `escapeText`
 （`&`/`<`/`>` 变实体），描述里含这几个字符时会轻微低估；面板一律按「≈」展示。
