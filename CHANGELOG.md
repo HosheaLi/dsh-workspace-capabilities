@@ -28,6 +28,13 @@
   deny（否则在途 apply 会用旧目录落地、把结果卡在旧目录）。面板的**归属判定按项目根**：项目内
   子目录 `cd` 不产生新的工作区行、也不丢失 agent 视图与 MCP 核对；**写盘准入仍是注册表 ∪ 会话
   初始目录**，`cd` 进入的新目录只可查看，不扩大插件写入面。详见 `docs/architecture.md` 2.5。
+- **MCP 服务器提示词段随工作区隐藏**（`lib/prompt.js`）：`mcp` 开关此前只 deny 工具 schema，
+  server instructions（`dsh-mcp-client` 在 host 层注册的 `mcp:<server>` 系统提示段）仍会进入
+  每个工作区的提示词。现在对显式 `false` 的服务器，在 agent 作用域注册**同名空文本段**遮蔽它
+  —— 依托 `dsh-system-prompt` 的「agent 作用域遮蔽同名全局段」语义，只影响该 agent，不碰其它
+  工作区。`apply` 幂等、按 cwd 增删差异；`session/event` 的 `working-directory/change`、
+  `tools/change`、面板写盘都会重算。新增 9 条单测（`test/prompt.test.js`）。
+  **边界**：进程照常启动，省的是 token 不是内存。
 
 ## [0.0.1] - 2026-10-15
 

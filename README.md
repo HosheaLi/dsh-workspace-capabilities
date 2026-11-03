@@ -1,6 +1,6 @@
 # dsh-workspace-scope
 
-按**工作区（项目目录）**决定技能是否进入模型目录，并屏蔽与本项目无关的 MCP 服务器工具。
+按**工作区（项目目录）**决定技能是否进入模型目录，并屏蔽与本项目无关的 MCP 服务器 —— **工具 schema 与 server instructions 提示词段都屏蔽**。
 
 一句话语义：把某个技能标成 `manual` 之后，**模型看不见它，但 `/技能名` 手动调用照样注入全文**。
 常见的「覆盖型」技能插件选择彻底停用（`/名` 一起死掉），这一档是本插件的核心增量。
@@ -42,6 +42,10 @@
 ```
 
 - **项目根**沿用 DSH 判定：最近的含 `.git` 的祖先目录，没有则用当前 cwd。
+- **`mcp` 开关同时管两层**：`false` 既把该服务器的 `mcp__<server>__*` 工具从 agent 的
+  schema 里 deny 掉，也在该 agent 作用域注册同名的空 `mcp:<server>` 提示词段，遮蔽
+  `dsh-mcp-client` 在 host 层注册的 server instructions。两层都省 token，但**进程不会被停掉**
+  —— MCP server 由 host 组合持有，与本插件无关。
 - **匹配优先级**：精确名 > 通配符（多个命中取最长模式）> `default`。
 - **`default` 只在显式设置过时才落盘**：缺省写一个默认值等于把它物化成显式配置，而项目层优先，
   于是「在项目里关掉一个技能」会顺带盖掉你全局设的 `manual`/`off`。
@@ -99,6 +103,10 @@
   时失效。所以改完配置后，**已经打开过的会话**里的 `/` 菜单要等这次失效才刷新（新会话、重连后
   立即是新目录）；模型目录不受这个缓存影响，仍是下一个模型步生效。
 - **不回收历史**：已经进过上下文的技能正文留在历史里，标成 `off` 只是让**以后**不再加载。
+- **MCP 两层是另一条触发链**：工具 deny 与提示词段遮蔽都在 `tools/change`、会话内 `cd`
+  （`working-directory/change`）、以及面板写盘（RPC 显式 invalidate）时重算。所以从面板改
+  `mcp` 开关是立即生效的；**手改 JSON 文件**则要等下一次 `cd` 或 `tools/change` 才会被重新
+  施加（策略缓存本身 1 秒过期，限制在"重算时机"而不是"读盘"）。
 
 机制链路、探针实测数字与代码定位见 [`docs/architecture.md`](docs/architecture.md) 第 2 节；
 要自己复核就跑探针：
@@ -143,6 +151,11 @@ DSH_RUNTIME_DIR=/tmp/dshref/runtime node tools/probe-skill-catalog-publish.mjs
 `bundled`（office/badge 等，正文在包内 assets）与 `runtime` 注册的技能在面板中标为「不可管理」
 并给出原因 —— 接管它们需要复现正文，做不到；强行接管会让 `/名` 静默失效。
 
+**MCP 层只省 token，不停进程**：`false` 的服务器仍由 host 组合照常启动并占用内存/启动时间；
+被省掉的是工具 schema（`tools.restrict` deny）与 server instructions（agent 作用域同名空段遮蔽）。
+要连进程一起省，只能把 MCP server 从 host 组合挪出去（例如放进一个专用 agent preset），
+代价是它只在该 preset 的会话里可用。
+
 **冷读路径**：没有任何活动会话时，面板与 `/` 菜单的目录来自 preset 作用域，本插件在 preset 层
 同样注册了降级 provider，结论与 agent 读一致；面板会把该目录标为 `incomplete` 并说明来源。
 面板**只认与所选工作区「同一项目根」的 agent**（会话 `cd` 到项目子目录不影响归属），不会借用
@@ -158,7 +171,7 @@ MCP 屏蔽在 `working-directory/change` 后重算。面板的**归属判定按�
 ## 开发与测试
 
 ```bash
-npm test               # 122 单测 + 23 集成 = 145 passed / 0 failed
+npm test               # 154 用例：131 单测通过 + 23 集成（需运行时，默认跳过）
 npm run test:unit      # 只跑纯 JS 单测（无宿主依赖）
 npm run test:integration   # 只跑集成测试，需先在 /tmp/dshref/runtime 解包运行时
 ```
