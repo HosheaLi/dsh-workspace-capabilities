@@ -108,6 +108,9 @@ async function mountSection({ state = MIN_STATE, storage = new Map(), storageThr
         getItem: (key) => (storage.has(key) ? storage.get(key) : null),
         setItem: (key, value) => storage.set(key, String(value)),
       },
+    // 面板会监听 window 的 scroll/resize 来关闭 fixed 浮层；替身给空实现即可。
+    addEventListener: () => {},
+    removeEventListener: () => {},
     __ModuleLoader__: { load: () => {} },
   };
   globalThis.fetch = fetchImpl ?? (async (_url, init) => {
@@ -273,8 +276,8 @@ test('composer 按钮：关闭态只渲染按钮，点开后渲染浮层并拉�
   assert.match(text, /第一个技能/, '候选应带描述');
 });
 
-test('state 到达后渲染完整面板：项目根/写入层/MCP 分区齐备', async () => {
-  const { Component, react } = await mountSection();
+test('state 到达后渲染完整面板：配置区/统计/来源列/MCP 分区齐备', async () => {
+  const { Component, react, logic } = await mountSection();
   const { effects } = react.render(Component, { close: () => {} });
   for (const effect of effects) effect();
   await new Promise((resolve) => setTimeout(resolve, 20));
@@ -283,28 +286,37 @@ test('state 到达后渲染完整面板：项目根/写入层/MCP 分区齐备',
   const text = collectText(tree).join(' ');
   assert.match(text, /写入全局层/, '应显示配置写入层');
   assert.match(text, /MCP 服务器/, '应渲染 MCP 分区');
-  assert.match(text, /共 1 个技能/, '应渲染总数统计');
+  assert.match(text, /技能 1/, '统计胶囊应渲染总数');
+  assert.match(text, /自动注入 1/, '统计胶囊应拆分三态');
+  assert.match(text, /默认状态/, '默认状态应从统计行里独立出来，带明确标签');
 
   // 回归：列模板原来把描述列写成裸 `1fr`，而描述单元格带 overflow:hidden（自动最小
   // 尺寸为 0），面板不够宽时它被压成 0 宽、内容被裁光 —— 整个描述列空白。
+  assert.equal(
+    logic.GRID_COLUMNS,
+    '24px minmax(150px, 200px) minmax(96px, 130px) minmax(180px, 1fr) 96px',
+    '列顺序必须是 勾选 / 技能 / 来源 / 描述 / 状态',
+  );
   const templates = collectGridTemplates(tree);
   assert.ok(templates.length >= 2, '表格应有表头行与数据行');
   for (const template of templates) {
     assert.match(template, /minmax\(180px, 1fr\)/, '描述列必须带宽度下限，否则会被压成 0 宽');
+    assert.match(template, /minmax\(96px, 130px\)/, '来源必须是独立列，并带宽度下限');
     assert.match(template, /^24px /, '最左列是批量勾选框');
   }
   assert.equal(new Set(templates).size, 1, '表头与数据行必须共用同一套列模板，否则会列错位');
-  assert.match(text, /描述与来源/, '列头应说明来源并入了描述列');
+  assert.match(text, /描述/, '列头应包含描述列');
+  assert.match(text, /来源/, '列头应包含来源列');
   assert.match(text, /这是一个用来验证描述列会真的渲染出来的技能说明/, '描述必须真的渲染进树里');
-  assert.match(text, /~\/\.agents\/skills/, '来源应渲染在描述列末尾');
-  assert.match(text, /可管理 · ~\/\.agents\/skills（1）/, '应按 (可管理, 来源) 出分组表头');
+  assert.match(text, /~\/\.agents\/skills/, '来源应渲染在独立来源列里');
+  assert.match(text, /展开/, '描述列应提供展开全部说明的入口');
   assert.match(text, /目录 ≈ .+ 字符 \/ \d+ 条/, '应显示目录体量估算');
   assert.match(text, /改动立即生效/, '应说明生效时机与代价');
 });
 
-// ── 面板的纯函数：排序分组、体量估算、批量增量 ──────────────────────────────
+// ── 面板的纯函数：三态计数、体量估算、批量增量 ──────────────────────────────
 
-test('面板纯逻辑：分组、体量估算与批量增量', async () => {
+test('面板纯逻辑：三态计数、体量估算与批量增量', async () => {
   const { logic } = await mountSection();
   assert.equal(logic.formatChars(0), '0');
   assert.equal(logic.formatChars(999), '999');
@@ -314,28 +326,17 @@ test('面板纯逻辑：分组、体量估算与批量增量', async () => {
   assert.equal(logic.signedChars(-1200), '目录 -1.2k 字符');
   assert.equal(logic.signedChars(500), '目录 +500 字符');
 
-  // 分组只按相邻行切分：host 已排好序，这里不能重排
-  const rows = [
-    { name: 'a', manageable: true, sourceLabel: '项目 .dsh/skills' },
-    { name: 'b', manageable: true, sourceLabel: '项目 .dsh/skills' },
-    { name: 'c', manageable: true, sourceLabel: '~/.dsh/skills' },
-    { name: 'd', manageable: false, sourceLabel: '包内置' },
-  ];
-  const groups = logic.groupRows(rows);
-  assert.deepEqual(groups.map((group) => `${group.label}:${group.rows.length}`), [
-    '可管理 · 项目 .dsh/skills:2',
-    '可管理 · ~/.dsh/skills:1',
-    '不可管理 · 包内置:1',
-  ]);
-  assert.deepEqual(logic.groupRows([]), []);
-  // 两个不同的未知来源会共享同一个显示名：分组 key 必须按序号生成，否则 React key 会撞
-  const sameLabel = logic.groupRows([
-    { name: 'a', manageable: true, sourceLabel: '未知来源' },
-    { name: 'b', manageable: true, sourceLabel: '项目 .dsh/skills' },
-    { name: 'c', manageable: true, sourceLabel: '未知来源' },
-  ]);
-  assert.deepEqual(sameLabel.map((group) => group.key), ['group-0', 'group-1', 'group-2']);
-  assert.deepEqual(sameLabel.map((group) => group.label), ['可管理 · 未知来源', '可管理 · 项目 .dsh/skills', '可管理 · 未知来源']);
+  // 三态计数只算可管理行：不可管理有 state 但配置对它们无效，算进来只会让数字虚高。
+  assert.deepEqual(
+    logic.stateCountsOf([
+      { name: 'a', manageable: true, state: 'pinned' },
+      { name: 'b', manageable: true, state: 'manual' },
+      { name: 'c', manageable: true, state: 'off' },
+      { name: 'd', manageable: false, state: 'off' },
+    ]),
+    { total: 4, pinned: 1, manual: 1, off: 1, unmanageable: 1 },
+  );
+  assert.deepEqual(logic.stateCountsOf([]), { total: 0, pinned: 0, manual: 0, off: 0, unmanageable: 0 });
 
   // 批量增量：只统计选中行，default 用 fallbackState 推算落点
   const skills = [
@@ -399,7 +400,11 @@ test('设置面板：渲染可管理/不可管理/命中来源与"未生效?"标
   const tree = view();
   const text = collectText(tree).join(' ');
 
-  assert.match(text, /共 4 个技能：隐藏 3（关闭 2），不可管理 1/);
+  assert.match(text, /技能 4/);
+  assert.match(text, /自动注入 0/);
+  assert.match(text, /仅手动 2/);
+  assert.match(text, /关闭 1/);
+  assert.match(text, /不可管理 1/);
   assert.match(text, /不可管理/, 'bundled 技能应有标记');
   assert.match(text, /未生效\?/, '配置说关了但注册表仍可见时必须提示');
   assert.match(text, /显式配置/, '精确命中显示"显式配置"');
@@ -413,8 +418,8 @@ test('设置面板：渲染可管理/不可管理/命中来源与"未生效?"标
   const badge = findElement(tree, (element) => element.type === 'span' && labelOf(element) === '不可管理');
   assert.match(badge.props.title, /正文不在磁盘上/, '不可管理的原因应进 title');
 
-  // 分组的先后顺序 = host 的排序：可管理组在前
-  assert.ok(text.indexOf('可管理 · 自定义目录') < text.indexOf('不可管理 · 包内置'), '可管理组必须排在不可管理组之前');
+  // host 的排序是 可管理 → 来源 → 名称；面板不再切分组，但仍要保证可管理行排在不可管理之前。
+  assert.ok(text.indexOf('exact-skill') < text.indexOf('bundled-skill'), '可管理行必须排在不可管理行之前');
 
   const optionsOf = (name) => collectElementsDeep(
     findElement(tree, (element) => element.type === 'select' && element.props['aria-label'] === `技能 ${name} 的注入状态`),
@@ -467,6 +472,11 @@ test('设置面板：状态下拉/删除显式配置/批量/默认/MCP/搜索/�
   const filtered = collectText(view()).join(' ');
   assert.match(filtered, /glob-skill/);
   assert.doesNotMatch(filtered, /exact-skill/, '搜索应过滤掉不匹配的行');
+  // 统计必须基于全量 state.skills，不能被筛选后的 rows 带着变。
+  assert.match(filtered, /技能 4/);
+  assert.match(filtered, /仅手动 2/);
+  assert.match(filtered, /关闭 1/);
+  assert.match(filtered, /不可管理 1/);
 
   // 只看非默认项
   const onlyProblem = findElement(view(), (element) => element.type === 'input' && element.props['aria-label'] === '只看非默认项');
@@ -578,25 +588,115 @@ test('设置面板：批量写盘后按回执显示已改/跳过/noop', async ()
   assert.doesNotMatch(skippedText, /已经是目标状态/, '两种 noop 的文案必须分开');
 });
 
-test('设置面板：描述单元格 2 行截断，来源排在描述末尾', async () => {
+test('设置面板：描述默认 2 行截断、可展开全文，来源独立成列，hover 浮层可开可关', async () => {
   const { view } = await mountSectionAndWait({ state: INTERACTIVE_STATE });
   const tree = view();
-  const description = findElement(tree, (element) => element.props?.title === '有精确配置');
-  assert.equal(description.props.style.display, '-webkit-box');
-  assert.equal(description.props.style.WebkitBoxOrient, 'vertical');
-  assert.equal(description.props.style.WebkitLineClamp, 2, '描述必须给 2 行，否则等于把腾出来的宽度又还回去');
 
-  const cell = collectElementsDeep(tree).find((element) =>
-    Array.isArray(element.children) && element.children.some((child) => child?.props?.title === '有精确配置'));
-  assert.ok(cell !== undefined, '描述必须有一个包裹单元格');
-  assert.equal(cell.children[0].props.title, '有精确配置', '描述在前');
-  assert.equal(collectText(cell.children.at(-1)).join(''), '自定义目录', '来源标签在单元格末尾');
-  // 回归：来源标签一度写成 `flex: 0 1 auto`，被按描述的最大内容宽度等比压缩，窄列下只剩
-  // 两三个字符（实测 474px 容器里 72px 的来源被压到 23px）。必须 0 0 auto + maxWidth 兜超长。
-  const sourceStyle = cell.children.at(-1).props.style;
-  assert.equal(sourceStyle.flex, '0 0 auto', '来源标签不参与压缩');
-  assert.equal(sourceStyle.maxWidth, '96px', '超长来源靠 maxWidth 兜住，不许挤掉描述列');
-  assert.equal(sourceStyle.textOverflow, 'ellipsis');
+  // 默认 2 行截断：找到包含"有精确配置"的文本容器。
+  const clamped = findElement(tree, (element) => element.type === 'div' && labelOf(element) === '有精确配置' && element.props.style?.WebkitLineClamp === 2);
+  assert.ok(clamped !== undefined, '描述必须给 2 行，否则等于把腾出来的宽度又还回去');
+  assert.equal(clamped.props.style.display, '-webkit-box');
+  assert.equal(clamped.props.style.WebkitBoxOrient, 'vertical');
+
+  // 来源独立成列：胶囊自己的省略号样式齐全，并且不在描述触发器的子树里。
+  const source = findElement(tree, (element) => element.type === 'span' && labelOf(element) === '自定义目录' && element.props.title?.includes('/x/a/SKILL.md'));
+  assert.ok(source !== undefined, '来源应是独立胶囊，title 带完整路径');
+  assert.equal(source.props.style.maxWidth, '100%', '来源胶囊宽度受列宽约束');
+  assert.equal(source.props.style.overflow, 'hidden');
+  assert.equal(source.props.style.textOverflow, 'ellipsis');
+  assert.equal(source.props.style.whiteSpace, 'nowrap');
+  const descriptionTrigger = findElement(tree, (element) => element.type === 'div' && element.props.role === 'button');
+  assert.doesNotMatch(labelOf(descriptionTrigger), /自定义目录/, '来源不能混进描述单元格');
+
+  // hover 400ms 才出浮层：刚触发时不应出现，避免扫过整张表时每行闪一下。
+  const hoverSurface = findElement(view(), (element) => element.type === 'div' && element.props.style?.position === 'relative' && typeof element.props.onMouseEnter === 'function');
+  assert.ok(hoverSurface !== undefined, '描述单元格应挂 hover 浮层');
+  const hoverEvent = { currentTarget: { getBoundingClientRect: () => ({ left: 120, bottom: 260 }) } };
+  hoverSurface.props.onMouseEnter(hoverEvent);
+  assert.equal(findElement(view(), (element) => element.props.role === 'tooltip'), undefined, '400ms 前不应出浮层');
+  await new Promise((resolve) => setTimeout(resolve, 450));
+  let tooltip = findElement(view(), (element) => element.props.role === 'tooltip');
+  assert.ok(tooltip !== undefined, 'hover 后应渲染详情浮层');
+  const tipText = labelOf(tooltip);
+  assert.match(tipText, /有精确配置/, '浮层给完整描述');
+  assert.match(tipText, /\/x\/a\/SKILL\.md/, '浮层给来源路径');
+  assert.match(tipText, /自定义目录/, '浮层给来源名');
+
+  // 浮层可交互：鼠标进入后取消关闭计时器，长描述可以在浮层里滚动、选中复制。
+  tooltip.props.onMouseEnter();
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.ok(findElement(view(), (element) => element.props.role === 'tooltip') !== undefined, '鼠标进入浮层后不能立刻关掉');
+
+  // 离开描述单元格 → 140ms 延迟关闭；再 hover 出现后按 Escape 立即关闭。
+  findElement(view(), (element) => element.type === 'div' && element.props.style?.position === 'relative' && typeof element.props.onMouseLeave === 'function').props.onMouseLeave();
+  await new Promise((resolve) => setTimeout(resolve, 160));
+  assert.equal(findElement(view(), (element) => element.props.role === 'tooltip'), undefined, 'mouseleave 后浮层应消失');
+
+  findElement(view(), (element) => element.type === 'div' && element.props.style?.position === 'relative' && typeof element.props.onMouseEnter === 'function').props.onMouseEnter(hoverEvent);
+  await new Promise((resolve) => setTimeout(resolve, 450));
+  assert.ok(findElement(view(), (element) => element.props.role === 'tooltip') !== undefined, '浮层应能重新出现');
+  findElement(view(), (element) => element.type === 'div' && element.props.role === 'button').props.onKeyDown({ key: 'Escape' });
+  assert.equal(findElement(view(), (element) => element.props.role === 'tooltip'), undefined, 'Escape 应关闭浮层');
+
+  // 点击描述整块展开：clamp 消失、路径行出现、提示变"收起"。
+  const trigger = findElement(view(), (element) => element.type === 'div' && element.props.role === 'button');
+  assert.equal(trigger.props['aria-expanded'], false);
+  trigger.props.onClick();
+  const expandedTree = view();
+  const expanded = findElement(expandedTree, (element) => element.type === 'div' && labelOf(element) === '有精确配置');
+  assert.equal(expanded.props.style.WebkitLineClamp, undefined, '展开后不再截断');
+  assert.match(collectText(expandedTree).join(' '), /\/x\/a\/SKILL\.md/, '展开后显示完整来源路径');
+  assert.match(collectText(expandedTree).join(' '), /收起/, '展开后提示收起');
+
+  // 键盘路径：Enter 收起/展开（触屏与键盘用户不依赖 hover）。
+  const keyboardTrigger = findElement(view(), (element) => element.type === 'div' && element.props.role === 'button');
+  keyboardTrigger.props.onKeyDown({ key: 'Enter', preventDefault: () => {} });
+  assert.equal(
+    findElement(view(), (element) => element.type === 'div' && element.props.role === 'button').props['aria-expanded'],
+    false,
+    'Enter 应收起已展开的描述',
+  );
+});
+
+test('设置面板：筛选无结果时给空状态，并能一键清除筛选（含只看非默认项）', async () => {
+  const { view } = await mountSectionAndWait({ state: INTERACTIVE_STATE });
+  findElement(view(), (element) => element.type === 'input' && element.props['aria-label'] === '只看非默认项')
+    .props.onChange({ target: { checked: true } });
+  findElement(view(), (element) => element.type === 'input' && element.props.placeholder === '搜索技能…')
+    .props.onChange({ target: { value: '不存在的技能' } });
+  const emptyText = collectText(view()).join(' ');
+  assert.match(emptyText, /没有匹配的技能/);
+  assert.match(emptyText, /清除筛选/, '有筛选条件时必须给一键清除入口');
+
+  findElement(view(), (element) => element.type === 'button' && labelOf(element) === '清除筛选').props.onClick();
+  const restored = view();
+  assert.equal(
+    findElement(restored, (element) => element.type === 'input' && element.props.placeholder === '搜索技能…').props.value,
+    '',
+    '清除筛选应把搜索词清空',
+  );
+  assert.equal(
+    findElement(restored, (element) => element.type === 'input' && element.props['aria-label'] === '只看非默认项').props.checked,
+    false,
+    '清除筛选也要重置只看非默认项',
+  );
+  assert.match(collectText(restored).join(' '), /exact-skill/, '清除筛选后列表恢复');
+});
+
+test('设置面板：行数超过一屏时显示表格内滚动提示（反例不显示）', async () => {
+  // 面板内滚动没有常驻滚动条（macOS overlay），条目多时必须明说"下面还有"。
+  const rowsOf = (count) => ({
+    ...INTERACTIVE_STATE,
+    skills: Array.from({ length: count }, (_, index) => ({ ...INTERACTIVE_STATE.skills[0], name: `skill-${index}` })),
+  });
+  const many = await mountSectionAndWait({ state: rowsOf(13) });
+  const manyText = collectText(many.view()).join(' ');
+  assert.match(manyText, /当前筛选 13 项/);
+  assert.match(manyText, /表格内可滚动查看全部/);
+
+  // 46vh / 44px 行高在替身默认 900px 视口下约 9 行：正好一屏时不该出现提示。
+  const few = await mountSectionAndWait({ state: rowsOf(9) });
+  assert.doesNotMatch(collectText(few.view()).join(' '), /表格内可滚动查看全部/, '没有溢出时不提示');
 });
 
 test('设置面板：单行状态下拉写盘后也清空勾选', async () => {
@@ -843,7 +943,7 @@ test('设置面板：没有可配置工作区 / 只有 state 失败 / 写盘失�
 });
 
 test('设置面板：effect cleanup 可安全执行（卸载后不再更新状态）', async () => {
-  const { Component, react } = await mountSection();
+  const { Component, react, logic } = await mountSection();
   const { effects } = react.render(Component, { close: () => {} });
   const cleanups = effects.map((effect) => effect());
   for (const cleanup of cleanups) {
@@ -851,5 +951,9 @@ test('设置面板：effect cleanup 可安全执行（卸载后不再更新状�
   }
   // 卸载后挂起的异步回调命中 cancelled 分支：不得抛错、不得再 setState
   await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.equal(cleanups.filter((cleanup) => typeof cleanup === 'function').length, 1, 'effect 应返回 cleanup');
+  assert.equal(
+    cleanups.filter((cleanup) => typeof cleanup === 'function').length,
+    effects.length,
+    '每个 effect 都应返回 cleanup（数据加载取消 + hover 计时器清理）',
+  );
 });
