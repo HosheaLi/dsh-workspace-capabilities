@@ -50,6 +50,7 @@ function makeAgent(id, cwd, options = {}) {
         activeDeny = [];
       };
     },
+    ...(options.schemas === undefined ? {} : { schemas: () => options.schemas }),
   };
   const agent = {
     id,
@@ -95,9 +96,7 @@ function makeCtx({ agents = [], schemas = [], workingDirectory } = {}) {
     warns,
     routes,
     effects,
-    emit: (event, ...args) => {
-      for (const callback of listeners.get(event) ?? []) callback(...args);
-    },
+    emit: (event, ...args) => (listeners.get(event) ?? []).map((callback) => callback(...args)),
     cleanup: () => {
       for (const disposer of [...effects].reverse()) if (typeof disposer === 'function') disposer();
     },
@@ -177,6 +176,58 @@ test('agent/created 与 agent/disposed：绑定新 agent、销毁时清账', asy
     emit('tools/change');
     await new Promise((resolve) => setTimeout(resolve, 20));
     assert.equal(record.bound, 1, 'agent 销毁后不该再被绑定');
+  } finally {
+    if (previousHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previousHome;
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test('agent/created：必须等 MCP 限制落地才放行（子 agent 首个模型步不抢跑）', async () => {
+  const { base, home, project } = await makeEnv();
+  const previousHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = home;
+  try {
+    await writeFile(
+      join(project, '.dsh', 'skills-scope.json'),
+      JSON.stringify({ version: 1, default: 'pinned', skills: {}, mcp: { comfy: false } }),
+    );
+    const { agent, record } = makeAgent('agent-child', project);
+    const { ctx, emit } = makeCtx({ agents: [agent], schemas: [{ name: 'mcp__comfy__generate' }, { name: 'bash' }] });
+    apply(ctx);
+
+    // `agent/created` 走 ctx.serial：宿主会 await 监听器返回的 Promise，
+    // 子 agent 的创建也等它结束。监听器若 fire-and-forget，Promise 立刻完成，
+    // 子 agent 的第一个 tools.resolve 会拿到尚未 deny 的 MCP 工具面。
+    const [pending] = emit('agent/created', { agent });
+    assert.equal(typeof pending?.then, 'function', 'agent/created 监听器必须是可等待的');
+    await pending;
+    assert.deepEqual(record.currentDeny(), ['mcp__comfy__generate'], '放行前 deny 必须已经生效');
+  } finally {
+    if (previousHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previousHome;
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test('apply：工具表优先从 agent 作用域的 tools 服务读（HMR 重载不依赖插件 ctx 状态）', async () => {
+  const { base, home, project } = await makeEnv();
+  const previousHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = home;
+  try {
+    await writeFile(
+      join(project, '.dsh', 'skills-scope.json'),
+      JSON.stringify({ version: 1, default: 'pinned', skills: {}, mcp: { comfy: false } }),
+    );
+    // 宿主 ctx 的 schemas 故意给空表：真实 HMR 窗口里插件 ctx 可能尚未 active，
+    // 直接访问 `ctx.tools` 会抛错；插件应改用应用器已经取到的 scoped tools。
+    const { agent, record } = makeAgent('agent-child', project, { schemas: [{ name: 'mcp__comfy__generate' }] });
+    const { ctx, emit } = makeCtx({ agents: [agent], schemas: [] });
+    apply(ctx);
+
+    const [pending] = emit('agent/created', { agent });
+    await pending;
+    assert.deepEqual(record.currentDeny(), ['mcp__comfy__generate'], '应使用 agent 作用域的 schemas 计算 deny');
   } finally {
     if (previousHome === undefined) delete process.env.DSH_HOME;
     else process.env.DSH_HOME = previousHome;

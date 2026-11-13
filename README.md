@@ -156,6 +156,11 @@ DSH_RUNTIME_DIR=/tmp/dshref/runtime node tools/probe-skill-catalog-publish.mjs
 要连进程一起省，只能把 MCP server 从 host 组合挪出去（例如放进一个专用 agent preset），
 代价是它只在该 preset 的会话里可用。
 
+**子 agent 同规则**：`subagent` / `subagent_fork` / 团队成员创建出的子 agent 与主会话共用同一套
+工作区策略。子 agent 创建时会等 MCP 工具 deny 与 server instructions 遮蔽**落地后**才放行第一个
+模型步，所以不会出现「主会话关了、子 agent 还能调」的抢跑；技能目录的降级在创建时同步注册，
+也没有这个窗口。
+
 **冷读路径**：没有任何活动会话时，面板与 `/` 菜单的目录来自 preset 作用域，本插件在 preset 层
 同样注册了降级 provider，结论与 agent 读一致；面板会把该目录标为 `incomplete` 并说明来源。
 面板**只认与所选工作区「同一项目根」的 agent**（会话 `cd` 到项目子目录不影响归属），不会借用

@@ -226,6 +226,38 @@ agent 读会经注册表调用 preset 层的 provider，那个内层读落在 **
 `mcp__my__server__tool` 会被解成 `my`，配置里的 `my__server` 匹配不上 → deny 名单为空 →
 开关静默失效。所以优先用**已知服务器名**（配置的 `mcp` 段）做最长前缀匹配。
 
+### 3.6.1 `agent/created` 必须等限制落地：子 agent 首个模型步不能抢跑
+
+MCP 的 deny 名单与提示词遮蔽都要**读盘**（`policy.read`），而子 agent 的创建在
+`agent/created`（`ctx.serial`）返回后**立刻进入第一个模型步**。早期实现是在监听器里
+`void restrictor.apply(agent)` / `void syncPromptForAgent(agent)` 后立即返回，于是：
+
+1. `tools.resolve()` 先于 deny 落地完成，子 agent 的首个请求拿到完整的 MCP 工具面；
+2. `systemPrompt.assemble()` 先于空段注册完成，`mcp:<server>` server instructions 仍进提示词。
+
+实测（本机 0.2.2-rc.2，`rea` 在工作区关闭）：修复前子 agent 首个 `request/header` 有
+**306 个工具 / 234 个 `mcp__rea__*`**、提示词含 `### MCP server: rea`；修复后同一探针为
+**72 个工具 / 0 个 rea 工具**、提示词无 `### MCP server: rea`。主会话一直是对的，所以
+表现成「主会话关了、子 agent 还能调」。
+
+修复两层：
+
+- `agent/created` 监听器改为 **async 并 await** `Promise.all([restrictor.apply, syncPromptForAgent])`。
+  宿主用 `ctx.serial` 派发该事件，会等待监听器返回的 Promise，子 agent 的创建因此被卡到
+  限制落地之后。`bindAgent()` 与 `presetBinder.scan()` 仍是同步的，技能 shadow provider
+  在第一个模型步之前就已就位（技能目录没有抢跑窗口）。
+- `createMcpRestrictor().apply()` 返回**在途 Promise**，同一 agent 的并发调用共享同一份。
+  只存布尔哨兵时，第二次调用会立刻返回，等待方会误以为「已经限制完」。`tools.restrict`
+  同步 emit `tools/change` 引发的重入只是拿回同一个 Promise，不会死锁。
+- deny 名单的工具表改从 **agent 作用域**的 `tools.schemas()` 读（不传 scope 仍是全局视图），
+  不再访问插件 ctx 的 `ctx.tools`。HMR 重载时插件 fiber 可能尚未 active，`ctx.tools`
+  会抛 `cannot get required service "tools" in inactive context`，使重载后的首次
+  `apply` 失败、所有 agent 的限制静默丢失；用已经取到的 `scopedTools` 可绕过这个窗口。
+
+**边界**：`tools/change` 与 `working-directory/change` 的补偿仍是 fire-and-forget
+（事件派发不等待监听器）；它们对应的是「已经活着的 agent」，下一次模型步前通常已完成。
+子 agent **创建**这条路径由 `agent/created` 的 serial 语义提供硬保证。
+
 ### 3.7 面板 RPC：注册可以早，鉴权必须逐请求做
 
 `webServer` 的 exact 表优先于 Connection 的 `/api` prefix 表，而 `connection` 服务的就绪时机

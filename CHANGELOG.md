@@ -8,6 +8,19 @@
 
 ## [未发布] - 2026-10-17
 
+### 修复
+
+- **子 agent 首个模型步抢跑 MCP 屏蔽**（`agent/created` 竞态）：MCP deny 与提示词遮蔽都要读盘，
+  而子 agent 的创建在 `agent/created` 返回后立刻开始第一个模型步。原实现 fire-and-forget，
+  子 agent 的首个 `request/header` 会拿到完整的 MCP 工具面（实测 306 个工具 / 234 个
+  `mcp__rea__*`），server instructions 也仍在提示词里；主会话因创建早已完成而是对的，
+  表现为「主会话关了、子 agent 还能调」。现在监听器 async 并 await 限制落地（宿主
+  `ctx.serial` 会等待），`apply()` 也返回在途 Promise 供等待方复用。修复后同一探针为
+  72 个工具 / 0 个 rea 工具。技能 shadow provider 是同步注册的，无此窗口。
+- **HMR 重载后限制不再静默丢失**：deny 名单的工具表改从 agent 作用域的 `tools.schemas()` 读，
+  不再访问插件 ctx 的 `ctx.tools` —— 重载窗口里插件 fiber 可能尚未 active，后者会抛
+  `cannot get required service "tools" in inactive context`，让首次 apply 失败。
+
 ### 兼容
 
 - **适配宿主 `0.2.1-rc.2`**（App 2026-10-17 更新）。插件依赖的宿主契约未变：

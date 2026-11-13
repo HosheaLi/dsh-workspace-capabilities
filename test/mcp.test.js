@@ -93,6 +93,38 @@ test('apply：首次施加 deny，名单没变时不动（集合比较），变�
   assert.equal(calls.restrict.length, 2, '名单为空时不建立新限制');
 });
 
+test('apply：并发调用共享同一个在途 Promise，不重复计算也不提前放行', async () => {
+  const gate = Promise.withResolvers();
+  let computes = 0;
+  const restrictor = createMcpRestrictor({
+    denyNamesFor: async () => {
+      computes += 1;
+      await gate.promise;
+      return ['mcp__comfy__generate'];
+    },
+    logger: { warn: () => {} },
+  });
+  const calls = [];
+  const agent = {
+    id: 'agent-1',
+    ctx: { get: () => ({ restrict: ({ deny }) => { calls.push([...deny]); return () => {}; } }) },
+  };
+
+  const first = restrictor.apply(agent);
+  const second = restrictor.apply(agent);
+  assert.equal(second, first, '同一 agent 的并发 apply 必须共享在途 Promise');
+
+  let settled = false;
+  void first.then(() => { settled = true; });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(settled, false, '读盘未完成时等待方不得被提前放行');
+
+  gate.resolve();
+  await first;
+  assert.equal(computes, 1, '合并后只计算一次');
+  assert.deepEqual(calls, [['mcp__comfy__generate']]);
+});
+
 test('apply：restrict 同步回调自己不递归（哨兵），无 scoped tools 时安全返回', async () => {
   let nested = 0;
   const { restrictor, agent, calls } = makeRestrictor({
