@@ -15,7 +15,7 @@ dsh plugin --profile web add dsh-workspace-capabilities
 
 > **与 `dsh-workspace-scope` 的关系**：npm 上已有另一个独立实现 `dsh-workspace-scope`
 > （Ri0n72Y 维护），与本项目没有代码或配置关系。本项目从 `0.1.0` 起使用
-> `dsh-workspace-capabilities`，两者包名不同，可以并存。
+> `dsh-workspace-capabilities`；包名不同，但注册了同一个 client slot id，不能同时安装。
 
 - 版本 `0.1.0`（首个公开发布版，变更见 [`CHANGELOG.md`](CHANGELOG.md)）
 - 零运行时依赖：host 半边只用 node 内置模块，client 半边只依赖平台种子 `react`
@@ -53,7 +53,7 @@ dsh plugin --profile web add dsh-workspace-capabilities
 | 会话内 `cd` 跟随 | ✅ | ❌ 只认初始 `cwd` |
 | 非法配置文件 | ✅ 拒绝写入 | ⚠️ 回落到默认值 |
 | `serverName` 含 `__` | ✅ 按已知服务器匹配 | ❌ 明确不支持 |
-| 分发 | 索引 / git（npm 发布中） | npm 一行安装 |
+| 分发 | 索引 / git（npm 待发布） | npm 一行安装 |
 
 ## 配置
 
