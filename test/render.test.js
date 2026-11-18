@@ -172,7 +172,12 @@ test('state 未到达时也能渲染：不得抛错（回归：首帧裸访问 s
   assert.ok(tree !== undefined && tree !== null, '首帧必须返回元素树');
   const text = collectText(tree).join(' ');
   assert.match(text, /工作区能力/, '首帧应已渲染分区标题');
-  assert.match(text, /正在读取配置来源/, '首帧应显示占位而不是崩溃');
+  // 写入层信息默认收进信息图标：hover（这里用聚焦）后才显示读取占位。
+  const info = findElement(tree, (element) => element.type === 'button' && element.props['aria-label'] === '工作区路径与写入层信息');
+  assert.ok(info !== undefined, '首帧也应渲染工作区信息图标');
+  info.props.onFocus();
+  const hovered = react.render(Component, { close: () => {} }).tree;
+  assert.match(collectText(hovered).join(' '), /正在读取配置来源/, '信息图标悬停后应显示读取占位而不是崩溃');
 });
 
 /**
@@ -284,24 +289,46 @@ test('state 到达后渲染完整面板：配置区/统计/来源列/MCP 分区�
 
   const { tree } = react.render(Component, { close: () => {} });
   const text = collectText(tree).join(' ');
-  assert.match(text, /写入全局层/, '应显示配置写入层');
   assert.match(text, /MCP 服务器/, '应渲染 MCP 分区');
   assert.match(text, /技能 1/, '统计胶囊应渲染总数');
   assert.match(text, /自动注入 1/, '统计胶囊应拆分三态');
   assert.match(text, /默认状态/, '默认状态应从统计行里独立出来，带明确标签');
 
+  // 页头排版：标题与简介各占一行，字号对齐原生设置页分区（18px / 13px）。
+  const heading = findElement(tree, (element) => element.type === 'h2' && labelOf(element) === '工作区能力');
+  const intro = findElement(tree, (element) => element.type === 'p' && labelOf(element).startsWith('按当前项目目录'));
+  assert.equal(heading.props.style.fontSize, '18px', '分区标题字号应原生对齐');
+  assert.equal(intro.props.style.fontSize, '13px', '分区简介字号应原生对齐');
+  assert.notEqual(heading.props.style.display, 'inline', '标题必须独占一行');
+
+  // 退出常驻的写入层信息：默认不出现，hover 工作区信息图标后才出现。
+  assert.doesNotMatch(text, /写入全局层/, '写入层信息默认收起');
+  assert.doesNotMatch(text, /\/Users\/example\/\.dsh\/settings\/skills-scope\.json/, '配置路径默认收起');
+  const workspaceInfo = findElement(tree, (element) => element.type === 'button' && element.props['aria-label'] === '工作区路径与写入层信息');
+  assert.ok(workspaceInfo !== undefined, '工作区下拉右侧应有信息图标');
+  workspaceInfo.props.onFocus();
+  const hoveredText = collectText(react.render(Component, { close: () => {} }).tree).join(' ');
+  assert.match(hoveredText, /写入全局层/, '信息图标应显示写入层');
+  assert.match(hoveredText, /\/Users\/example\/\.dsh\/settings\/skills-scope\.json/, '信息图标应显示具体配置路径');
+  assert.match(hoveredText, /\/Users\/example\/code\/demo/, '信息图标应显示工作区路径');
+
+  // 工作区下拉只显示名称，路径进信息图标。
+  const workspaceSelect = findElement(tree, (element) => element.type === 'select' && element.props['aria-label'] === '选择工作区');
+  const workspaceOptions = collectElementsDeep(workspaceSelect).filter((element) => element.type === 'option');
+  assert.deepEqual(workspaceOptions.map((option) => labelOf(option)), ['demo'], '下拉选项只显示工作区名称');
+
   // 回归：列模板原来把描述列写成裸 `1fr`，而描述单元格带 overflow:hidden（自动最小
   // 尺寸为 0），面板不够宽时它被压成 0 宽、内容被裁光 —— 整个描述列空白。
   assert.equal(
     logic.GRID_COLUMNS,
-    '24px minmax(150px, 200px) minmax(96px, 130px) minmax(180px, 1fr) 96px',
+    '24px minmax(132px, 184px) minmax(92px, 112px) minmax(164px, 1fr) 96px',
     '列顺序必须是 勾选 / 技能 / 来源 / 描述 / 状态',
   );
   const templates = collectGridTemplates(tree);
   assert.ok(templates.length >= 2, '表格应有表头行与数据行');
   for (const template of templates) {
-    assert.match(template, /minmax\(180px, 1fr\)/, '描述列必须带宽度下限，否则会被压成 0 宽');
-    assert.match(template, /minmax\(96px, 130px\)/, '来源必须是独立列，并带宽度下限');
+    assert.match(template, /minmax\(164px, 1fr\)/, '描述列必须带宽度下限，否则会被压成 0 宽');
+    assert.match(template, /minmax\(92px, 112px\)/, '来源必须是独立列，并带宽度下限');
     assert.match(template, /^24px /, '最左列是批量勾选框');
   }
   assert.equal(new Set(templates).size, 1, '表头与数据行必须共用同一套列模板，否则会列错位');
@@ -309,9 +336,81 @@ test('state 到达后渲染完整面板：配置区/统计/来源列/MCP 分区�
   assert.match(text, /来源/, '列头应包含来源列');
   assert.match(text, /这是一个用来验证描述列会真的渲染出来的技能说明/, '描述必须真的渲染进树里');
   assert.match(text, /~\/\.agents\/skills/, '来源应渲染在独立来源列里');
-  assert.match(text, /展开/, '描述列应提供展开全部说明的入口');
+  assert.doesNotMatch(text, /展开/, '描述列不再有展开入口');
   assert.match(text, /目录 ≈ .+ 字符 \/ \d+ 条/, '应显示目录体量估算');
   assert.match(text, /改动立即生效/, '应说明生效时机与代价');
+});
+
+test('设置面板：工具栏顺序——目录体量纯文本在上、统计胶囊左对齐、搜索下移', async () => {
+  const { view } = await mountSectionAndWait({ state: INTERACTIVE_STATE });
+  const elements = collectElementsDeep(view());
+  const catalogIndex = elements.findIndex((element) => element.type === 'div'
+    && element.props.title !== undefined
+    && labelOf(element).startsWith('目录 ≈'));
+  const chipIndex = elements.findIndex((element) => element.type === 'span' && element.props.style?.borderRadius === '999px');
+  const searchIndex = elements.findIndex((element) => element.type === 'input' && element.props.placeholder === '搜索技能…');
+  assert.ok(catalogIndex >= 0, '应渲染目录体量');
+  assert.ok(chipIndex >= 0, '应渲染统计胶囊');
+  assert.ok(searchIndex >= 0, '应渲染搜索框');
+  assert.ok(catalogIndex < chipIndex, '目录体量应在统计胶囊上一行');
+  assert.ok(chipIndex < searchIndex, '搜索栏应下移到统计胶囊下方');
+
+  const catalog = elements[catalogIndex];
+  assert.match(labelOf(catalog), /目录 ≈ 120 字符 \/ 1 条/);
+  assert.equal(catalog.props.style.borderRadius, undefined, '目录体量不再使用胶囊样式');
+  assert.match(catalog.props.title, /按宿主渲染规则估算的字符数/, '目录体量应保留字符数估算说明');
+  assert.match(catalog.props.title, /token 数因语言而异/, 'token 换算说明应保留在 title 里');
+
+  // 统计胶囊不靠右：容器没有 marginLeft:auto，仍从左侧开始排。
+  const chipRow = elements.find((element) => element.type === 'div'
+    && element.props.style?.display === 'flex'
+    && element.props.style?.gap === '6px'
+    && element.props.style?.flexWrap === 'wrap'
+    && labelOf(element).startsWith('技能'));
+  assert.ok(chipRow !== undefined, '统计胶囊应有自己的行容器');
+  assert.equal(chipRow.props.style.marginLeft, undefined, '统计胶囊应左对齐，不再靠右');
+});
+
+test('设置面板：默认状态信息图标 hover 给出三态定义', async () => {
+  const { view } = await mountSectionAndWait({ state: INTERACTIVE_STATE });
+  const info = findElement(view(), (element) => element.type === 'button' && element.props['aria-label'] === '默认状态说明');
+  assert.ok(info !== undefined, '默认状态下拉右侧应有信息图标');
+  info.props.onFocus();
+  const text = collectText(view()).join(' ');
+  assert.match(text, /自动注入\s*：\s*进 <available_skills>/, '应解释自动注入');
+  assert.match(text, /仅手动\s*：\s*不进模型目录/, '应解释仅手动');
+  assert.match(text, /关闭\s*：\s*完全无关/, '应解释关闭');
+  assert.equal(
+    collectElementsDeep(view()).filter((element) => element.props?.role === 'tooltip').length,
+    1,
+    '同一时刻只应有一个说明浮层',
+  );
+});
+
+test('设置面板：不可管理项独立分组、默认折叠，可展开收起且切换工作区后复位', async () => {
+  const { view } = await mountSectionAndWait({ state: INTERACTIVE_STATE });
+  const toggleOf = (tree) => findElement(tree, (element) => element.type === 'button' && labelOf(element).includes('不可管理 1 项'));
+  assert.ok(toggleOf(view()) !== undefined, '不可管理项应有独立分组头');
+  assert.equal(toggleOf(view()).props['aria-expanded'], false, '分组默认折叠');
+  assert.doesNotMatch(collectText(view()).join(' '), /bundled-skill/, '折叠时不可管理行不渲染');
+
+  toggleOf(view()).props.onClick();
+  assert.equal(toggleOf(view()).props['aria-expanded'], true, '点击组头应展开');
+  const expandedText = collectText(view()).join(' ');
+  assert.match(expandedText, /bundled-skill/, '展开后显示不可管理行');
+  assert.match(expandedText, /正文不在磁盘上，配置对它无效/, '组头说明配置为何无效');
+  assert.ok(expandedText.indexOf('not-applied') < expandedText.indexOf('bundled-skill'), '分组始终排在可管理行之后');
+
+  toggleOf(view()).props.onClick();
+  assert.doesNotMatch(collectText(view()).join(' '), /bundled-skill/, '再次点击应收起分组');
+
+  // 切换工作区后折叠态复位：新工作区的同名技能是另一份配置，不该继承展开状态。
+  toggleOf(view()).props.onClick();
+  assert.match(collectText(view()).join(' '), /bundled-skill/);
+  findElement(view(), (element) => element.type === 'select' && element.props['aria-label'] === '选择工作区')
+    .props.onChange({ target: { value: MIN_STATE.scope.cwd } });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(toggleOf(view()).props['aria-expanded'], false, '切换工作区后折叠态复位');
 });
 
 // ── 面板的纯函数：三态计数、体量估算、批量增量 ──────────────────────────────
@@ -405,7 +504,6 @@ test('设置面板：渲染可管理/不可管理/命中来源与"未生效?"标
   assert.match(text, /仅手动 2/);
   assert.match(text, /关闭 1/);
   assert.match(text, /不可管理 1/);
-  assert.match(text, /不可管理/, 'bundled 技能应有标记');
   assert.match(text, /未生效\?/, '配置说关了但注册表仍可见时必须提示');
   assert.match(text, /显式配置/, '精确命中显示"显式配置"');
   assert.match(text, /命中 glob-\*/, '通配符命中显示模式名');
@@ -413,25 +511,41 @@ test('设置面板：渲染可管理/不可管理/命中来源与"未生效?"标
   assert.match(text, /2 个工具/, 'MCP 分区显示工具数');
   assert.match(text, /可见 0\/2|全部可见/, '有探针时报可见数');
 
+  // 不可管理项默认折叠：组头的数量与原因在，但行本身不在树里。
+  assert.doesNotMatch(text, /bundled-skill/, '不可管理分组默认折叠');
+  assert.match(text, /不可管理 1 项/, '组头应给出不可管理数量');
+  const groupToggle = findElement(tree, (element) => element.type === 'button' && labelOf(element).includes('不可管理 1 项'));
+  assert.ok(groupToggle !== undefined, '应渲染不可管理分组头');
+  assert.equal(groupToggle.props['aria-expanded'], false);
+  groupToggle.props.onClick();
+  const expandedTree = view();
+  const expandedText = collectText(expandedTree).join(' ');
+  assert.match(expandedText, /bundled-skill/, '展开后应显示不可管理行');
+  assert.equal(
+    findElement(expandedTree, (element) => element.type === 'button' && labelOf(element).includes('不可管理 1 项')).props['aria-expanded'],
+    true,
+  );
+
+  assert.match(expandedText, /不可管理/, 'bundled 技能应有标记');
   // 回归：描述列原来渲染 `reason ?? description`，不可管理技能因此永远看不到自己的描述。
-  assert.match(text, /不可接管/, '不可管理行也要显示自己的描述');
-  const badge = findElement(tree, (element) => element.type === 'span' && labelOf(element) === '不可管理');
+  assert.match(expandedText, /不可接管/, '不可管理行也要显示自己的描述');
+  const badge = findElement(expandedTree, (element) => element.type === 'span' && labelOf(element) === '不可管理');
   assert.match(badge.props.title, /正文不在磁盘上/, '不可管理的原因应进 title');
 
-  // host 的排序是 可管理 → 来源 → 名称；面板不再切分组，但仍要保证可管理行排在不可管理之前。
-  assert.ok(text.indexOf('exact-skill') < text.indexOf('bundled-skill'), '可管理行必须排在不可管理行之前');
+  // host 的排序是 可管理 → 来源 → 名称；面板再把不可管理收进末尾的独立分组。
+  assert.ok(expandedText.indexOf('exact-skill') < expandedText.indexOf('bundled-skill'), '可管理行必须排在不可管理行之前');
 
   const optionsOf = (name) => collectElementsDeep(
-    findElement(tree, (element) => element.type === 'select' && element.props['aria-label'] === `技能 ${name} 的注入状态`),
+    findElement(expandedTree, (element) => element.type === 'select' && element.props['aria-label'] === `技能 ${name} 的注入状态`),
   ).filter((element) => element.type === 'option');
   // "删除显式配置"只对**精确键**有意义：命中的是通配符时配置里没有以技能名命名的键。
   assert.equal(optionsOf('exact-skill').length, 4, '精确命中的行应有"删除显式配置"这一项');
   assert.equal(optionsOf('glob-skill').length, 3, '通配符命中没有可删的键，不该给第 4 项');
 
   // 勾选框：不可管理的行不能选（批量修改对它没有意义）
-  const disabled = findElement(tree, (element) => element.type === 'input' && element.props['aria-label'] === '选择技能 bundled-skill');
+  const disabled = findElement(expandedTree, (element) => element.type === 'input' && element.props['aria-label'] === '选择技能 bundled-skill');
   assert.equal(disabled.props.disabled, true, '不可管理行的勾选框必须禁用');
-  const enabled = findElement(tree, (element) => element.type === 'input' && element.props['aria-label'] === '选择技能 exact-skill');
+  const enabled = findElement(expandedTree, (element) => element.type === 'input' && element.props['aria-label'] === '选择技能 exact-skill');
   assert.equal(enabled.props.disabled, false);
 });
 
@@ -498,11 +612,14 @@ test('设置面板：勾选与批量条——全选只覆盖可管理行，应�
   // 未选中任何行时不显示批量条
   assert.doesNotMatch(collectText(view()).join(' '), /已选/, '没有勾选时不该占位');
 
-  // 表头全选：只勾可管理的三行（bundled 不可管理）
+  // 表头全选：只勾可管理的三行（bundled 不可管理，且默认折叠）
   checkboxOf(view(), '全选当前筛选内的可管理技能').props.onChange({ target: { checked: true } });
   await flush();
   let text = collectText(view()).join(' ');
   assert.match(text, /已选 3 项（当前筛选 4 项）/, '表头全选应只覆盖可管理行');
+  assert.equal(checkboxOf(view(), '选择技能 bundled-skill'), undefined, '不可管理行默认折叠，不在树里');
+  findElement(view(), (element) => element.type === 'button' && labelOf(element).includes('不可管理 1 项')).props.onClick();
+  await flush();
   assert.equal(checkboxOf(view(), '选择技能 bundled-skill').props.checked, false, '不可管理行不该被全选');
 
   // 批量条给出目录体量增量（三行都不在目录里 → 设为 manual 不改变目录）
@@ -588,25 +705,30 @@ test('设置面板：批量写盘后按回执显示已改/跳过/noop', async ()
   assert.doesNotMatch(skippedText, /已经是目标状态/, '两种 noop 的文案必须分开');
 });
 
-test('设置面板：描述默认 2 行截断、可展开全文，来源独立成列，hover 浮层可开可关', async () => {
+test('设置面板：描述默认 2 行截断、仅 hover 出全文，来源独立成列', async () => {
   const { view } = await mountSectionAndWait({ state: INTERACTIVE_STATE });
   const tree = view();
 
   // 默认 2 行截断：找到包含"有精确配置"的文本容器。
   const clamped = findElement(tree, (element) => element.type === 'div' && labelOf(element) === '有精确配置' && element.props.style?.WebkitLineClamp === 2);
-  assert.ok(clamped !== undefined, '描述必须给 2 行，否则等于把腾出来的宽度又还回去');
+  assert.ok(clamped !== undefined, '描述必须给 2 行预览，全文由 hover 浮层给出');
   assert.equal(clamped.props.style.display, '-webkit-box');
   assert.equal(clamped.props.style.WebkitBoxOrient, 'vertical');
+  assert.equal(clamped.props.style.minHeight, '31px', '短描述也保持两行行高');
+  assert.doesNotMatch(collectText(tree).join(' '), /展开|收起/, '描述列不再有展开/收起入口');
 
-  // 来源独立成列：胶囊自己的省略号样式齐全，并且不在描述触发器的子树里。
+  // 来源独立成列：胶囊自己的省略号样式齐全。
   const source = findElement(tree, (element) => element.type === 'span' && labelOf(element) === '自定义目录' && element.props.title?.includes('/x/a/SKILL.md'));
   assert.ok(source !== undefined, '来源应是独立胶囊，title 带完整路径');
   assert.equal(source.props.style.maxWidth, '100%', '来源胶囊宽度受列宽约束');
   assert.equal(source.props.style.overflow, 'hidden');
   assert.equal(source.props.style.textOverflow, 'ellipsis');
   assert.equal(source.props.style.whiteSpace, 'nowrap');
-  const descriptionTrigger = findElement(tree, (element) => element.type === 'div' && element.props.role === 'button');
-  assert.doesNotMatch(labelOf(descriptionTrigger), /自定义目录/, '来源不能混进描述单元格');
+  assert.equal(
+    findElement(tree, (element) => element.type === 'div' && element.props.role === 'button' && labelOf(element).includes('有精确配置')),
+    undefined,
+    '描述单元格不再伪装成展开按钮',
+  );
 
   // hover 400ms 才出浮层：刚触发时不应出现，避免扫过整张表时每行闪一下。
   const hoverSurface = findElement(view(), (element) => element.type === 'div' && element.props.style?.position === 'relative' && typeof element.props.onMouseEnter === 'function');
@@ -615,7 +737,7 @@ test('设置面板：描述默认 2 行截断、可展开全文，来源独立�
   hoverSurface.props.onMouseEnter(hoverEvent);
   assert.equal(findElement(view(), (element) => element.props.role === 'tooltip'), undefined, '400ms 前不应出浮层');
   await new Promise((resolve) => setTimeout(resolve, 450));
-  let tooltip = findElement(view(), (element) => element.props.role === 'tooltip');
+  const tooltip = findElement(view(), (element) => element.props.role === 'tooltip');
   assert.ok(tooltip !== undefined, 'hover 后应渲染详情浮层');
   const tipText = labelOf(tooltip);
   assert.match(tipText, /有精确配置/, '浮层给完整描述');
@@ -627,35 +749,10 @@ test('设置面板：描述默认 2 行截断、可展开全文，来源独立�
   await new Promise((resolve) => setTimeout(resolve, 200));
   assert.ok(findElement(view(), (element) => element.props.role === 'tooltip') !== undefined, '鼠标进入浮层后不能立刻关掉');
 
-  // 离开描述单元格 → 140ms 延迟关闭；再 hover 出现后按 Escape 立即关闭。
+  // 离开描述单元格 → 140ms 延迟关闭。
   findElement(view(), (element) => element.type === 'div' && element.props.style?.position === 'relative' && typeof element.props.onMouseLeave === 'function').props.onMouseLeave();
   await new Promise((resolve) => setTimeout(resolve, 160));
   assert.equal(findElement(view(), (element) => element.props.role === 'tooltip'), undefined, 'mouseleave 后浮层应消失');
-
-  findElement(view(), (element) => element.type === 'div' && element.props.style?.position === 'relative' && typeof element.props.onMouseEnter === 'function').props.onMouseEnter(hoverEvent);
-  await new Promise((resolve) => setTimeout(resolve, 450));
-  assert.ok(findElement(view(), (element) => element.props.role === 'tooltip') !== undefined, '浮层应能重新出现');
-  findElement(view(), (element) => element.type === 'div' && element.props.role === 'button').props.onKeyDown({ key: 'Escape' });
-  assert.equal(findElement(view(), (element) => element.props.role === 'tooltip'), undefined, 'Escape 应关闭浮层');
-
-  // 点击描述整块展开：clamp 消失、路径行出现、提示变"收起"。
-  const trigger = findElement(view(), (element) => element.type === 'div' && element.props.role === 'button');
-  assert.equal(trigger.props['aria-expanded'], false);
-  trigger.props.onClick();
-  const expandedTree = view();
-  const expanded = findElement(expandedTree, (element) => element.type === 'div' && labelOf(element) === '有精确配置');
-  assert.equal(expanded.props.style.WebkitLineClamp, undefined, '展开后不再截断');
-  assert.match(collectText(expandedTree).join(' '), /\/x\/a\/SKILL\.md/, '展开后显示完整来源路径');
-  assert.match(collectText(expandedTree).join(' '), /收起/, '展开后提示收起');
-
-  // 键盘路径：Enter 收起/展开（触屏与键盘用户不依赖 hover）。
-  const keyboardTrigger = findElement(view(), (element) => element.type === 'div' && element.props.role === 'button');
-  keyboardTrigger.props.onKeyDown({ key: 'Enter', preventDefault: () => {} });
-  assert.equal(
-    findElement(view(), (element) => element.type === 'div' && element.props.role === 'button').props['aria-expanded'],
-    false,
-    'Enter 应收起已展开的描述',
-  );
 });
 
 test('设置面板：筛选无结果时给空状态，并能一键清除筛选（含只看非默认项）', async () => {
