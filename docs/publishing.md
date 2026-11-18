@@ -39,8 +39,10 @@ DSH 不校验索引里的声明，只校验格式；安装时仍走正常的插�
 https://cdn.jsdelivr.net/gh/HosheaLi/dsh-workspace-capabilities@main/index.json
 ```
 
-jsDelivr 读 `main` 分支，CDN 快、不受 GitHub raw 15 秒超时影响；GitHub Pages 也可以，但要在
-仓库设置里开启。
+jsDelivr 读 `main` 分支，CDN 快、不受 GitHub raw 15 秒超时影响；代价是它有缓存，发新版本后
+索引可能滞后（可用 `https://purge.jsdelivr.net/gh/HosheaLi/dsh-workspace-capabilities@main/index.json`
+主动刷新）。GitHub Pages 也可以，但要在仓库设置里开启；GitHub raw 在部分网络下会撞上 DSH 的
+15 秒抓取预算。
 
 ## 发布步骤
 
