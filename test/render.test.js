@@ -667,6 +667,31 @@ test('设置面板：勾选与批量条——全选只覆盖可管理行，应�
   assert.doesNotMatch(collectText(view()).join(' '), /已选 \d+ 项/, '"清除选择"必须清空勾选');
 });
 
+test('设置面板：批量条分三行——本次说明在第二行左对齐，三个操作按钮在底部', async () => {
+  const { view } = await mountSectionAndWait({ state: INTERACTIVE_STATE });
+  findElement(view(), (element) => element.type === 'input' && element.props['aria-label'] === '选择技能 exact-skill')
+    .props.onChange({ target: { checked: true } });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const bar = findElement(view(), (element) => element.type === 'div'
+    && element.props.style?.flexDirection === 'column'
+    && element.props.style?.padding === '8px 10px'
+    && element.props.style?.borderRadius === '8px'
+    && labelOf(element).startsWith('已选 1 项'));
+  assert.ok(bar !== undefined, '勾选后应出现批量条');
+  assert.equal(bar.children.length, 3, '批量条应拆成选中/本次说明/操作按钮三行');
+
+  const [summaryRow, deltaLine, actionRow] = bar.children;
+  assert.match(labelOf(summaryRow), /已选 1 项/, '第一行保留选中数量');
+  assert.match(labelOf(summaryRow), /设为/, '第一行保留目标状态下拉');
+  assert.equal(deltaLine.type, 'span', '第二行是本次目录变化说明');
+  assert.match(labelOf(deltaLine), /^本次：/, '本次说明应作为独立第二行');
+  assert.equal(deltaLine.props.style.marginLeft, undefined, '本次说明必须左对齐，不能再被顶到右边');
+  assert.equal(actionRow.children.length, 3, '第三行应放三个操作按钮');
+  assert.deepEqual(actionRow.children.map((element) => labelOf(element)), ['应用', '恢复默认', '清除选择'], '按钮顺序保持不变');
+  assert.equal(bar.children.at(-1), actionRow, '三个按钮所在的行动条必须位于批量条最下方');
+});
+
 test('设置面板：批量写盘后按回执显示已改/跳过/noop', async () => {
   const setSkillsReply = { value: undefined };
   const fetchImpl = async (_url, init) => {
