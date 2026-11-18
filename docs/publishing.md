@@ -69,6 +69,25 @@ jsDelivr 读 `main` 分支，CDN 快、不受 GitHub raw 15 秒超时影响；�
 > `index.json` 不能钉住「包含它自己的那次提交」——先提交代码并打 tag，再生成索引、单独提交。
 > 索引里的 commit 指向代码提交即可，索引文件本身晚一个提交没有影响。
 
+## 仓库自动化
+
+仓库已有两条 GitHub Actions：
+
+| 工作流 | 触发 | 做什么 |
+| --- | --- | --- |
+| `.github/workflows/ci.yml` | push `main` / PR | Ubuntu + Windows 上跑 `npm test` 与覆盖率门禁（行 95% / 函数 90% / 分支 80%） |
+| `.github/workflows/release.yml` | push `v*` tag | 校验 tag 与 `package.json` 版本一致 → 跑测试 → `npm publish --provenance` → 建 GitHub Release |
+
+首次发布 npm 前，在仓库 **Settings → Secrets and variables → Actions** 里加 `NPM_TOKEN`
+（npm 账号的 Automation token）。也可以改用 npm 的 trusted publishing（OIDC），
+那样不需要 token，但要在 npm 包设置里先绑定仓库与工作流。手动发布同样可以：
+
+```bash
+npm publish --access public --registry https://registry.npmjs.org
+```
+
+`prepublishOnly` 会再跑一遍测试；发布前请确认 `npm pack --dry-run` 的文件清单。
+
 ## 社区渠道（可选）
 
 自建索引解决「能装」，社区市场解决「被搜到」。三个主渠道互相独立：

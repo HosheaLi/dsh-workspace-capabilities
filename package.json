@@ -36,11 +36,13 @@
     "docs",
     "icon.svg",
     "README.md",
+    "README.en.md",
     "CHANGELOG.md",
     "LICENSE"
   ],
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "dsh": {
     "bundle": {
@@ -63,7 +65,9 @@
     "test": "node --test \"test/**/*.test.js\"",
     "test:unit": "node --test test/config.test.js test/cwd.test.js test/rpc.test.js test/client.test.js test/render.test.js test/catalog.test.js test/policy.test.js test/mcp.test.js test/skills.test.js test/prompt.test.js test/preset.test.js test/index.test.js",
     "test:integration": "node --test test/integration.test.js test/integration-catalog.test.js",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=95 --test-coverage-functions=90 --test-coverage-branches=80 \"test/**/*.test.js\"",
     "build:index": "node tools/build-market-index.mjs",
-    "check:index": "node tools/check-market-index.mjs"
+    "check:index": "node tools/check-market-index.mjs",
+    "prepublishOnly": "npm test"
   }
 }

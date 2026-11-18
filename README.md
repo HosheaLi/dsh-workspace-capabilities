@@ -1,6 +1,14 @@
 # dsh-workspace-capabilities
 
+[![ci](https://github.com/HosheaLi/dsh-workspace-capabilities/actions/workflows/ci.yml/badge.svg)](https://github.com/HosheaLi/dsh-workspace-capabilities/actions/workflows/ci.yml) [![npm](https://img.shields.io/npm/v/dsh-workspace-capabilities)](https://www.npmjs.com/package/dsh-workspace-capabilities) [![DSH tested](https://img.shields.io/badge/DSH%20tested-0.2.2--rc.3-f59e0b)](https://github.com/deepseek-ai/deepseek-harness/releases) [![license](https://img.shields.io/github/license/HosheaLi/dsh-workspace-capabilities)](LICENSE)
+
+[English](README.en.md)
+
 按**工作区（项目目录）**决定技能是否进入模型目录，并屏蔽与本项目无关的 MCP 服务器 —— **工具 schema 与 server instructions 提示词段都屏蔽**。
+
+```sh
+dsh plugin --profile web add dsh-workspace-capabilities
+```
 
 一句话语义：把某个技能标成 `manual` 之后，**模型看不见它，但 `/技能名` 手动调用照样注入全文**。
 常见的「覆盖型」技能插件选择彻底停用（`/名` 一起死掉），这一档是本插件的核心增量。
@@ -13,6 +21,15 @@
 - 零运行时依赖：host 半边只用 node 内置模块，client 半边只依赖平台种子 `react`
 - 宿主基线 `@deepseek-ai/*` 0.2.1-rc.2（2026-10-17 复核），当前桌面端 0.2.2-rc.3 实测可用
 
+## 兼容性
+
+| DSH | 状态 |
+| --- | --- |
+| `0.2.2-rc.3`（Desktop / macOS） | 日常使用；163 个测试通过 |
+| `0.2.1-rc.5`（Web） | 预期可用，未单独实机复核 |
+| `>=0.2.1-rc.2 <0.3.0` | `engines.dsh` 允许范围 |
+| `<0.2.1-rc.2` | 不支持 |
+
 ## 三种状态
 
 | 状态 | 进 `<available_skills>` | `skill` 工具 | `/名` 手势 | 用途 |
@@ -22,6 +39,21 @@
 | `off` | ❌ | ❌ | ❌ | 与本工作区完全无关 |
 
 默认值是 `pinned`：装上插件不产生任何行为突变，再由你在工作区里把不需要的标掉。
+
+## 和 `dsh-workspace-scope` 的区别
+
+两者都做“按工作区控制技能 / MCP”，**不能同装**（注册了同一个 client slot id）。功能重合之外，本插件多出：
+
+| | 本插件 | dsh-workspace-scope |
+| --- | --- | --- |
+| 全局默认 + 项目覆盖 + 通配符 | ✅ | ❌ 只有每工作区一个文件 |
+| MCP server instructions | ✅ 提示词段遮蔽 | ❌ 只 deny 工具 schema |
+| 三态 / 真正的 `off` | ✅ | ⚠️ 二态；关闭后仍保留 `/` |
+| 技能来源列与分组 | ✅ | ❌ |
+| 会话内 `cd` 跟随 | ✅ | ❌ 只认初始 `cwd` |
+| 非法配置文件 | ✅ 拒绝写入 | ⚠️ 回落到默认值 |
+| `serverName` 含 `__` | ✅ 按已知服务器匹配 | ❌ 明确不支持 |
+| 分发 | 索引 / git（npm 发布中） | npm 一行安装 |
 
 ## 配置
 
@@ -220,7 +252,10 @@ MCP 屏蔽在 `working-directory/change` 后重算。面板的**归属判定按�
 npm test               # 163 用例：140 单测通过 + 23 集成（需运行时，默认跳过）
 npm run test:unit      # 只跑纯 JS 单测（无宿主依赖）
 npm run test:integration   # 只跑集成测试，需先在 /tmp/dshref/runtime 解包运行时
+npm run test:coverage  # 覆盖率门禁：行 95% / 函数 90% / 分支 80%
 ```
+
+CI 在 Ubuntu 与 Windows 上跑同一套测试；`v*` tag 会触发 npm 发布与 GitHub Release。
 
 覆盖率（2026-10-18 实测）：**行 100.00% / 分支 ≈90%（实测 90.3–90.6，会抖）/ 函数 97.51%**。
 测试入口、覆盖率口径与
