@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Workspace capabilities">
+  <rect width="128" height="128" rx="28" fill="#4D6BFE"/>
+  <g fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="28" y="28" width="30" height="30" rx="8"/>
+    <rect x="70" y="28" width="30" height="30" rx="8" opacity="0.45"/>
+    <rect x="28" y="70" width="30" height="30" rx="8" opacity="0.45"/>
+    <path d="M70 85h30"/>
+    <path d="M85 70v30"/>
+  </g>
+</svg>

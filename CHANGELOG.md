@@ -6,7 +6,16 @@
 > [`docs/archive/2026-10-11-workspace-capabilities-panel-plan.md`](docs/archive/2026-10-11-workspace-capabilities-panel-plan.md)）。
 > 项目转入迭代维护阶段时统一起见，**当前状态重新编号为 `0.0.1`**，此后按语义化版本递增。
 
-## [未发布] - 2026-10-17
+## [0.1.0] - 2026-11-18
+
+### 发布
+
+- **首个公开发布版**：包名从 `dsh-workspace-scope` 改为 `dsh-workspace-capabilities`，避免与 npm 上
+  Ri0n72Y 的独立实现重名；插件行 id 仍是 `workspace-scope`，profiles 里的 id 覆盖不受影响。
+- 补齐发布元数据：`repository` / `homepage` / `bugs` / `keywords` / `engines.dsh`、`locale/en.json`、
+  `locale/zh.json`、`icon.svg`；新增 format 1 市场索引（`index.json`）与生成、校验脚本
+  （`tools/build-market-index.mjs`、`tools/check-market-index.mjs`）。
+- 发布流程与各社区渠道要求见 [`docs/publishing.md`](docs/publishing.md)。
 
 ### 界面
 

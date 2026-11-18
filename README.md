@@ -1,13 +1,17 @@
-# dsh-workspace-scope
+# dsh-workspace-capabilities
 
 按**工作区（项目目录）**决定技能是否进入模型目录，并屏蔽与本项目无关的 MCP 服务器 —— **工具 schema 与 server instructions 提示词段都屏蔽**。
 
 一句话语义：把某个技能标成 `manual` 之后，**模型看不见它，但 `/技能名` 手动调用照样注入全文**。
 常见的「覆盖型」技能插件选择彻底停用（`/名` 一起死掉），这一档是本插件的核心增量。
 
-- 版本 `0.0.1`（迭代维护起点，变更见 [`CHANGELOG.md`](CHANGELOG.md)）
+> **与 `dsh-workspace-scope` 的关系**：npm 上已有另一个独立实现 `dsh-workspace-scope`
+> （Ri0n72Y 维护），与本项目没有代码或配置关系。本项目从 `0.1.0` 起使用
+> `dsh-workspace-capabilities`，两者包名不同，可以并存。
+
+- 版本 `0.1.0`（首个公开发布版，变更见 [`CHANGELOG.md`](CHANGELOG.md)）
 - 零运行时依赖：host 半边只用 node 内置模块，client 半边只依赖平台种子 `react`
-- 宿主基线 `@deepseek-ai/*` 0.2.1-rc.2（2026-10-17 复核）
+- 宿主基线 `@deepseek-ai/*` 0.2.1-rc.2（2026-10-17 复核），当前桌面端 0.2.2-rc.3 实测可用
 
 ## 三种状态
 
@@ -129,13 +133,38 @@ DSH_RUNTIME_DIR=/tmp/dshref/runtime node tools/probe-skill-catalog-publish.mjs
 
 ## 安装
 
-### 方式一：作为 profile bundle（推荐）
+### 方式一：从插件市场索引安装（推荐）
+
+索引是 [DSH 插件市场 format 1](docs/publishing.md) 的 JSON 文件，地址：
+
+```text
+https://cdn.jsdelivr.net/gh/HosheaLi/dsh-workspace-capabilities@main/index.json
+```
+
+1. 打开 **设置 → 插件**，在「实验性插件」里开启 **Custom plugin indexes / 自定义插件索引**；
+2. 切到 **发现（Discover）**，点 **添加索引源**，粘贴上面的地址；
+3. 在「工作区能力」条目上点 **安装**。
+
+备用地址（jsDelivr 不通时）：`https://raw.githubusercontent.com/HosheaLi/dsh-workspace-capabilities/main/index.json`。
+DSH 给索引源的抓取预算是 15 秒，GitHub raw 在部分网络下会超时。
+
+### 方式二：从 Git 安装（固定版本）
+
+已安装 `dsh` CLI 时，可以绕过索引直接装某个已发布的 commit 或 tag：
+
+```bash
+dsh plugin --profile web add "git+https://github.com/HosheaLi/dsh-workspace-capabilities.git#v0.1.0"
+```
+
+Desktop 的 `desktop` profile 不归公开 CLI 管，请在 **插件** 页面安装；装完在插件行里确认版本。
+
+### 方式三：本地源码安装（开发）
 
 1. 让包能被 profile 解析到，例如软链到 profile 目录：
 
    ```bash
    mkdir -p ~/.dsh/profiles/desktop/node_modules
-   ln -sfn ~/code/D03_dsh-workspace-scope ~/.dsh/profiles/desktop/node_modules/dsh-workspace-scope
+   ln -sfn ~/code/dsh-workspace-capabilities ~/.dsh/profiles/desktop/node_modules/dsh-workspace-capabilities
    ```
 
 2. 在 profile 的 `cordis.patch.yml` 里插一行：
@@ -143,17 +172,17 @@ DSH_RUNTIME_DIR=/tmp/dshref/runtime node tools/probe-skill-catalog-publish.mjs
    ```yaml
    - insert:
        - id: workspace-scope
-         name: 'dsh-workspace-scope'
+         name: 'dsh-workspace-capabilities'
    ```
 
 `client` 半边由 `package.json` 的 `dsh.client` 声明自动加载，不需要单独插行。
 
-### 方式二：加进 `dsh.profile.bundles`
+### 方式四：加进 `dsh.profile.bundles`
 
-在 profile 的 `package.json` 里把 `dsh-workspace-scope` 追加到 `dsh.profile.bundles`，随 profile
+在 profile 的 `package.json` 里把 `dsh-workspace-capabilities` 追加到 `dsh.profile.bundles`，随 profile
 一起升级。
 
-**两种方式都需要重启宿主进程**（host 与 client 半边都在启动时装配）。
+**所有方式都需要重启宿主进程**（host 与 client 半边都在启动时装配）。
 
 ## 能力边界
 
@@ -188,7 +217,7 @@ MCP 屏蔽在 `working-directory/change` 后重算。面板的**归属判定按�
 ## 开发与测试
 
 ```bash
-npm test               # 154 用例：131 单测通过 + 23 集成（需运行时，默认跳过）
+npm test               # 163 用例：140 单测通过 + 23 集成（需运行时，默认跳过）
 npm run test:unit      # 只跑纯 JS 单测（无宿主依赖）
 npm run test:integration   # 只跑集成测试，需先在 /tmp/dshref/runtime 解包运行时
 ```
@@ -207,6 +236,7 @@ npm run test:integration   # 只跑集成测试，需先在 /tmp/dshref/runtime 
 | [`docs/architecture.md`](docs/architecture.md) | 维护者：宿主机制事实、模块划分、实现要点、能力边界 |
 | [`docs/development.md`](docs/development.md) | 维护者：环境、测试、覆盖率口径、探针、维护检查清单 |
 | [`docs/archive/`](docs/archive/) | 历史：已实施完毕的开发方案原文，只读不改 |
+| [`docs/publishing.md`](docs/publishing.md) | 发布者：市场索引、发布步骤与各渠道要求 |
 | [`CHANGELOG.md`](CHANGELOG.md) | 版本变更记录 |
 | [`tools/probe-skill-catalog-publish.mjs`](tools/probe-skill-catalog-publish.mjs) | 研究探针：复核宿主发布语义 |
 

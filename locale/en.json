@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Workspace capabilities",
+    "description": "Decide per workspace which skills the model may auto-load and which MCP servers stay hidden. Skills marked manual disappear from the model catalog while a manual /skill call still injects the full text."
+  }
+}

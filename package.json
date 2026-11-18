@@ -1,19 +1,47 @@
 {
-  "name": "dsh-workspace-scope",
-  "version": "0.0.1",
-  "description": "按工作区（项目目录）决定技能是否进入模型目录、并屏蔽无关 MCP 服务器工具的 DSH 插件",
+  "name": "dsh-workspace-capabilities",
+  "version": "0.1.0",
+  "description": "Per-workspace control over which skills the model auto-loads and which MCP servers stay hidden in DeepSeek Harness",
+  "author": "HosheaLi",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "skill",
+    "mcp",
+    "workspace"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HosheaLi/dsh-workspace-capabilities.git"
+  },
+  "homepage": "https://github.com/HosheaLi/dsh-workspace-capabilities#readme",
+  "bugs": {
+    "url": "https://github.com/HosheaLi/dsh-workspace-capabilities/issues"
+  },
   "type": "module",
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
     "./package.json": "./package.json"
   },
   "files": [
     "lib",
     "cordis.patch.yml",
-    "README.md"
+    "locale",
+    "docs",
+    "icon.svg",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -28,13 +56,14 @@
     }
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22",
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
   },
   "scripts": {
     "test": "node --test \"test/**/*.test.js\"",
     "test:unit": "node --test test/config.test.js test/cwd.test.js test/rpc.test.js test/client.test.js test/render.test.js test/catalog.test.js test/policy.test.js test/mcp.test.js test/skills.test.js test/prompt.test.js test/preset.test.js test/index.test.js",
-    "test:integration": "node --test test/integration.test.js test/integration-catalog.test.js"
-  },
-  "license": "MIT",
-  "private": true
+    "test:integration": "node --test test/integration.test.js test/integration-catalog.test.js",
+    "build:index": "node tools/build-market-index.mjs",
+    "check:index": "node tools/check-market-index.mjs"
+  }
 }
