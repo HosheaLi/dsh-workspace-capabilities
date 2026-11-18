@@ -1,0 +1,75 @@
+{
+  "format": 1,
+  "title": {
+    "en": "HosheaLi DSH plugins",
+    "zh": "HosheaLi 的 DSH 插件"
+  },
+  "description": {
+    "en": "Independent DeepSeek Harness bundles by HosheaLi.",
+    "zh": "HosheaLi 维护的 DeepSeek Harness 插件。"
+  },
+  "metadata": {
+    "categories": {
+      "context": {
+        "title": {
+          "en": "Skills and context",
+          "zh": "技能与上下文"
+        }
+      }
+    },
+    "labels": {
+      "skills": {
+        "title": {
+          "en": "Skills",
+          "zh": "技能"
+        }
+      },
+      "mcp": {
+        "title": {
+          "en": "MCP",
+          "zh": "MCP"
+        }
+      }
+    }
+  },
+  "plugins": [
+    {
+      "name": "dsh-workspace-capabilities",
+      "title": {
+        "en": "Workspace capabilities",
+        "zh": "工作区能力"
+      },
+      "description": {
+        "en": "Per-workspace control over which skills the model auto-loads and which MCP servers stay hidden. Manual /skill calls still work.",
+        "zh": "按工作区决定哪些技能自动进入模型目录、哪些 MCP 服务器被隐藏；手打 /技能名 仍可调用。"
+      },
+      "icon": "icon.svg",
+      "author": "HosheaLi",
+      "homepage": "https://github.com/HosheaLi/dsh-workspace-capabilities#readme",
+      "repository": {
+        "url": "https://github.com/HosheaLi/dsh-workspace-capabilities"
+      },
+      "metadata": {
+        "category": "context",
+        "labels": [
+          "skills",
+          "mcp"
+        ]
+      },
+      "versions": [
+        {
+          "version": "0.1.0",
+          "publishTimestamp": 1794998405,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/HosheaLi/dsh-workspace-capabilities",
+            "commit": "69c0f6bd1ed6a4b5fade5bdfaf414091ddd1a2d1"
+          },
+          "engines": {
+            "dsh": ">=0.2.1-rc.2 <0.3.0"
+          }
+        }
+      ]
+    }
+  ]
+}
