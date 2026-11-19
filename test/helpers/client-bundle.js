@@ -10,8 +10,6 @@
  * 组件闭包，而 V8 覆盖率仍累积到同一个脚本上。
  */
 
-import { pathToFileURL } from 'node:url';
-
 const CLIENT_PATH = new URL('../../lib/client.js', import.meta.url);
 
 /** @type {Promise<{id: string, factory: (require: (name: string) => unknown) => any}> | undefined} */
@@ -25,7 +23,9 @@ export async function loadBundleEntry() {
       const previousWindow = globalThis.window;
       globalThis.window = { __ModuleLoader__: { load: (entry) => { captured = entry; } } };
       try {
-        await import(pathToFileURL(CLIENT_PATH.pathname).href);
+        // 直接用 URL 的 href：路径里带空格 / 中文时 `.pathname` 已百分号编码，
+        // 再过一遍 pathToFileURL 会二次编码（`%20` → `%2520`），导入直接 ENOENT。
+        await import(CLIENT_PATH.href);
       } finally {
         if (previousWindow === undefined) delete globalThis.window;
         else globalThis.window = previousWindow;

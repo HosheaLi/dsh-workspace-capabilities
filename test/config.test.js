@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import test from 'node:test';
 
 import {
@@ -35,11 +35,12 @@ import {
 
 test('全局配置路径与项目配置路径不重合', () => {
   const home = dshHome({ DSH_HOME: '/tmp/fake-dsh-home' });
-  assert.equal(home, '/tmp/fake-dsh-home');
+  assert.equal(home, resolve('/tmp/fake-dsh-home'));
   const global = globalConfigPath({ DSH_HOME: '/tmp/fake-dsh-home' });
-  const project = projectConfigPath('/tmp/fake-dsh-home');
-  assert.equal(global, '/tmp/fake-dsh-home/settings/skills-scope.json');
-  assert.equal(project, '/tmp/fake-dsh-home/.dsh/skills-scope.json');
+  const project = projectConfigPath(home);
+  // 用 join 拼期望值，Windows 上才是同一种分隔符；断言的两条防线是「全局在 settings/ 下」与两者不重合。
+  assert.equal(global, join(home, 'settings', 'skills-scope.json'));
+  assert.equal(project, join(home, '.dsh', 'skills-scope.json'));
   assert.notEqual(global, project);
 });
 
@@ -233,7 +234,7 @@ test('原子写：并发读-改-写同一路径后文件是完整 JSON，且不�
 test('dshHome：$DSH_HOME 缺失或为空白时回落到 ~/.dsh', () => {
   assert.equal(dshHome({}), join(homedir(), '.dsh'));
   assert.equal(dshHome({ DSH_HOME: '   ' }), join(homedir(), '.dsh'), '空白串也算未设置');
-  assert.equal(dshHome({ DSH_HOME: ' /tmp/x ' }), '/tmp/x', '两侧空白被裁掉');
+  assert.equal(dshHome({ DSH_HOME: ' /tmp/x ' }), resolve('/tmp/x'), '两侧空白被裁掉');
 });
 
 test('globToRegExp：正则元字符按字面量转义', () => {
@@ -297,6 +298,10 @@ test('写入链失败不阻断后续写入', async () => {
 });
 
 test('原子写：目标不可写时抛错并清理临时文件', async (t) => {
+  if (process.platform === 'win32') {
+    t.skip('Windows 目录上的只读属性不阻止在目录内建文件，无法构造写入失败');
+    return;
+  }
   if (typeof process.getuid === 'function' && process.getuid() === 0) {
     t.skip('root 会绕过目录权限，无法构造写入失败');
     return;
