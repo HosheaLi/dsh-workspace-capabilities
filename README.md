@@ -1,14 +1,13 @@
 # dsh-workspace-capabilities
 
-[![ci](https://github.com/HosheaLi/dsh-workspace-capabilities/actions/workflows/ci.yml/badge.svg)](https://github.com/HosheaLi/dsh-workspace-capabilities/actions/workflows/ci.yml) [![npm](https://img.shields.io/npm/v/dsh-workspace-capabilities)](https://www.npmjs.com/package/dsh-workspace-capabilities) [![DSH tested](https://img.shields.io/badge/DSH%20tested-0.2.2--rc.3-f59e0b)](https://github.com/deepseek-ai/deepseek-harness/releases) [![license](https://img.shields.io/github/license/HosheaLi/dsh-workspace-capabilities)](LICENSE)
+[![ci](https://github.com/HosheaLi/dsh-workspace-capabilities/actions/workflows/ci.yml/badge.svg)](https://github.com/HosheaLi/dsh-workspace-capabilities/actions/workflows/ci.yml) [![npm](https://img.shields.io/npm/v/dsh-workspace-capabilities)](https://www.npmjs.com/package/dsh-workspace-capabilities) [![DSH tested](https://img.shields.io/badge/DSH%20tested-0.2.2--rc.5-f59e0b)](https://github.com/deepseek-ai/deepseek-harness/releases) [![license](https://img.shields.io/github/license/HosheaLi/dsh-workspace-capabilities)](LICENSE)
 
 [English](README.en.md)
 
 按**工作区（项目目录）**决定技能是否进入模型目录，并屏蔽与本项目无关的 MCP 服务器 —— **工具 schema 与 server instructions 提示词段都屏蔽**。
 
-```sh
-dsh plugin --profile web add dsh-workspace-capabilities
-```
+> **当前发布状态（2026-11-19）**：GitHub 仓库与 npm 包尚未公开，下面的索引 / Git / npm
+> 安装命令在发布后生效；今天可用的是[本地源码安装](#方式三本地源码安装开发)。
 
 一句话语义：把某个技能标成 `manual` 之后，**模型看不见它，但 `/技能名` 手动调用照样注入全文**。
 常见的「覆盖型」技能插件选择彻底停用（`/名` 一起死掉），这一档是本插件的核心增量。
@@ -17,16 +16,16 @@ dsh plugin --profile web add dsh-workspace-capabilities
 > （Ri0n72Y 维护），与本项目没有代码或配置关系。本项目从 `0.1.0` 起使用
 > `dsh-workspace-capabilities`；包名不同，但注册了同一个 client slot id，不能同时安装。
 
-- 版本 `0.1.0`（首个公开发布版，变更见 [`CHANGELOG.md`](CHANGELOG.md)）
+- 版本 `0.1.0`（首个发布版，发布状态见上；变更见 [`CHANGELOG.md`](CHANGELOG.md)）
 - 零运行时依赖：host 半边只用 node 内置模块，client 半边只依赖平台种子 `react`
-- 宿主基线 `@deepseek-ai/*` 0.2.1-rc.2（2026-10-17 复核），当前桌面端 0.2.2-rc.3 实测可用
+- 宿主基线 `@deepseek-ai/*` 0.2.1-rc.2（2026-10-17 复核），当前桌面端 0.2.2-rc.5 已实测（2026-11-19）
 
 ## 兼容性
 
 | DSH | 状态 |
 | --- | --- |
-| `0.2.2-rc.3`（Desktop / macOS） | 日常使用；163 个测试通过 |
-| `0.2.1-rc.5`（Web） | 预期可用，未单独实机复核 |
+| `0.2.2-rc.5`（Desktop / macOS） | 日常使用；163 个测试通过（2026-11-19） |
+| `0.2.1-rc.5`（Web） | 宿主契约相同，预期可用；未在 Web 实机复核 |
 | `>=0.2.1-rc.2 <0.3.0` | `engines.dsh` 允许范围 |
 | `<0.2.1-rc.2` | 不支持 |
 
@@ -94,6 +93,12 @@ dsh plugin --profile web add dsh-workspace-capabilities
 
 ## 界面
 
+![工作区能力面板：工作区与默认状态、目录体量、三态统计、技能表](docs/images/panel.png)
+
+![技能表：来源列、三态下拉、不可管理项折叠与表格底部提示](docs/images/skills.png)
+
+![MCP 服务器开关：关闭后同时屏蔽工具 schema 与 server instructions](docs/images/mcp.png)
+
 | 位置 | 内容 |
 | --- | --- |
 | 设置 → **工作区能力** | 页头（标题 / 简介 / 生效说明）、两行配置区（工作区 · 默认状态，各带信息图标）、目录体量与三态统计、搜索与「只看非默认项」、技能表格（勾选框 / 名称与元信息 / 来源 / 描述 / 状态下拉，不可管理项独立折叠）、批量条、MCP 服务器开关（含「可见 x/y」核对） |
@@ -127,7 +132,7 @@ dsh plugin --profile web add dsh-workspace-capabilities
 - **写盘回执**分三种，避免自相矛盾：`已改 N 项`（有跳过时追加 `；跳过 M 项：名字（原因）`）／
   `未做任何改动；跳过 M 项：…`／`所选技能已经是目标状态，未写盘`。
 - 工具栏左对齐常驻三态统计（`技能 40 / 自动注入 29 / 仅手动 0 / 关闭 7 / 不可管理 4`）；目录体量
-  估算（例如 `目录 ≈ 4.5k 字符 / 31 条`）改成上一行的纯文本，字符数按宿主渲染规则估算，token
+  估算（本机实测 `目录 ≈ 3.2k 字符 / 24 条`）改成上一行的纯文本，字符数按宿主渲染规则估算，token
   换算只在 tooltip 里。批量条给出本次动作的 Δ。
 
 ## 改配置对进行中的会话意味着什么
@@ -143,8 +148,8 @@ dsh plugin --profile web add dsh-workspace-capabilities
 | 目录内容变了 | **追加**一条带全量 `<available_skills>` 的替代消息（不是就地替换、不是差量） |
 | 关掉某技能又打开 | 算**两次**变化 → 两次追加 |
 
-- **成本**：改 k 次 ≈ 该会话永久多 k 份目录，每份都是全量。本机 31 条技能目录约 **4.5k 字符/份**
-  （≈1.2k token，估算值），并打断一次前缀缓存（prompt cache）。
+- **成本**：改 k 次 ≈ 该会话永久多 k 份目录，每份都是全量。本机 24 条技能目录约 **3.2k 字符/份**
+  （≈0.8k token，估算值），并打断一次前缀缓存（prompt cache）。
 - **生效时机**：下一个模型步 —— **同一回合里继续调工具的那一步也算**；不需要重启 App、不需要
   重开会话（与「改 `cordis.patch.yml` 要重启」是两回事）。
 - **`/` 候选菜单是另一条路**：菜单数据由客户端**按会话缓存**，只在切换 agent preset 或连接重置
@@ -165,7 +170,10 @@ DSH_RUNTIME_DIR=/tmp/dshref/runtime node tools/probe-skill-catalog-publish.mjs
 
 ## 安装
 
-### 方式一：从插件市场索引安装（推荐）
+> **当前发布状态（2026-11-19）**：仓库与 npm 包尚未公开，方式一、方式二在发布后可用；
+> 今天可用的是方式三（本地源码）。
+
+### 方式一：从插件市场索引安装（发布后可用）
 
 索引是 [DSH 插件市场 format 1](docs/publishing.md) 的 JSON 文件，地址：
 
@@ -180,7 +188,7 @@ https://cdn.jsdelivr.net/gh/HosheaLi/dsh-workspace-capabilities@main/index.json
 备用地址（jsDelivr 不通时）：`https://raw.githubusercontent.com/HosheaLi/dsh-workspace-capabilities/main/index.json`。
 DSH 给索引源的抓取预算是 15 秒，GitHub raw 在部分网络下会超时。
 
-### 方式二：从 Git 安装（固定版本）
+### 方式二：从 Git 安装（固定版本，发布后可用）
 
 已安装 `dsh` CLI 时，可以绕过索引直接装某个已发布的 commit 或 tag：
 
@@ -257,7 +265,7 @@ npm run test:coverage  # 覆盖率门禁：行 95% / 函数 90% / 分支 80%
 
 CI 在 Ubuntu 与 Windows 上跑同一套测试；`v*` tag 会触发 npm 发布与 GitHub Release。
 
-覆盖率（2026-10-18 实测）：**行 100.00% / 分支 ≈90%（实测 90.3–90.6，会抖）/ 函数 97.51%**。
+覆盖率（2026-11-19 实测）：**行 99.21% / 分支 88.04% / 函数 94.33%**，CI 门禁为行 95% / 函数 90% / 分支 80%。
 测试入口、覆盖率口径与
 波动说明、手工验收清单、维护检查清单见 [`docs/development.md`](docs/development.md)。
 

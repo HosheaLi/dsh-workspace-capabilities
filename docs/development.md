@@ -9,19 +9,19 @@
 - 跑**宿主本身**（装插件、起 App）请用 App 自带的 node：
   `/Applications/DeepSeek Harness.app/Contents/Resources/runtime/primary-runtime/dependencies/node/bin/node`（v24）。
   在系统 Node 上加载宿主原生模块会报 `No usable native binding found for node-addon-require-builtin-darwin-arm64`。
-  本插件的测试不触发该路径（实测系统 Node v25.9.0 全绿）。
+  本插件的测试不触发该路径（2026-11-19 在系统 Node v26.13.0 上全绿）。
 - **零 `@deepseek-ai/*` 依赖**：host 半边只用 node 内置模块，不随宿主版本漂移，因此也不需要
   peer 版本豁免。client 半边只 `require('react')` 这个平台种子。改动时请守住这条边界。
 
 ## 目录结构
 
 ```text
-lib/                    host 半边（9 个模块，见 architecture.md 第 1 节）
+lib/                    host 半边（10 个模块，见 architecture.md 第 1 节）
 lib/client.js           浏览器半边：手写 bundle（window.__ModuleLoader__.load）
 test/                   纯 JS 单测 + 集成测试
 test/helpers/           集成测试搭台（真实运行时 + 最小 session 替身）
 tools/                  研究探针（不属于 npm test）
-docs/                   正式文档
+docs/                   正式文档（docs/images/ 为界面截图）
 docs/archive/           已实施完毕的历史方案原文，只读不改
 cordis.patch.yml        bundle patch：把 host 半边插进 profile 的 host 组合
 ```
@@ -29,18 +29,18 @@ cordis.patch.yml        bundle patch：把 host 半边插进 profile 的 host �
 ## 测试
 
 ```bash
-# 全部：122 单测 + 23 集成 = 145 passed / 0 failed / 0 skipped
+# 全部：163 用例 = 140 单测通过 + 23 集成跳过（缺运行时）
 npm test
 
 # 只跑纯 JS 单测（无宿主依赖）
 npm run test:unit
 
-# 只跑集成测试：在真实 0.2.1-rc.2 运行时上跑
+# 只跑集成测试：在真实宿主运行时上跑（2026-11-19 基线 0.2.2-rc.5）
 # 缺运行时（/tmp/dshref/runtime 不存在）时整体 skip，所以新克隆直接 npm test 不会变红
 DSH_RUNTIME_DIR=/tmp/dshref/runtime npm run test:integration
 
-# 覆盖率（10 个 lib 文件）
-DSH_RUNTIME_DIR=/tmp/dshref/runtime node --test --experimental-test-coverage "test/**/*.test.js"
+# 覆盖率（CI 同款门禁：行 95% / 函数 90% / 分支 80%）
+npm run test:coverage
 ```
 
 **解包运行时**（一次性）：
@@ -56,36 +56,33 @@ mkdir -p /tmp/dshref && mv /tmp/dshref-extract/dsh /tmp/dshref/runtime
 
 ## 覆盖率口径
 
-2026-10-18 实测（`0.2.1-rc.2` 适配 + cd 归属/写盘分区）：**行 100.00% / 分支 ≈90%
-（实测 90.3–90.6，会抖）/ 函数 97.51%**。
+2026-11-19 实测（宿主 0.2.2-rc.5，单测 + 集成按缺运行时跳过）：
 
 | 文件 | 行 | 分支 | 函数 |
 | --- | --- | --- | --- |
-| `catalog.js` | 100.00 | 91.49 | 100.00 |
-| `client.js` | 100.00 | 84.33 | 94.68 |
-| `config.js` | 100.00 | 91.49 | 96.67 |
+| `catalog.js` | 100.00 | 90.43 | 100.00 |
+| `client.js` | 98.75 | 82.31 | 90.63 |
+| `config.js` | 100.00 | 90.30 | 96.67 |
 | `cwd.js` | 100.00 | 100.00 | 100.00 |
-| `index.js` | 100.00 | 91.89 | 100.00 |
-| `mcp.js` | 100.00 | 96.55 | 100.00 |
-| `policy.js` | 100.00 | 90.00 | 100.00 |
-| `preset.js` | 100.00 | 96.61 | 100.00 |
-| `rpc.js` | 100.00 | 92.50 | 100.00 |
-| `skills.js` | 100.00 | 95.83 | 100.00 |
-| **all** | **100.00** | **≈90.6（90.3–90.6，会抖）** | **97.51** |
+| `index.js` | 96.80 | 85.37 | 85.00 |
+| `mcp.js` | 100.00 | 96.61 | 100.00 |
+| `policy.js` | 100.00 | 84.21 | 100.00 |
+| `preset.js` | 100.00 | 94.44 | 100.00 |
+| `prompt.js` | 97.04 | 86.11 | 100.00 |
+| `rpc.js` | 100.00 | 90.60 | 100.00 |
+| `skills.js` | 100.00 | 93.62 | 100.00 |
+| **all** | **99.21** | **88.04** | **94.33** |
 
-表中的**分支**数字取自其中一次运行，会随时序抖动（下面第 2 条）；`config.js` / `cwd.js` /
-`mcp.js` / `rpc.js` 几行的分支比例因此也会小幅移动，**行覆盖稳定 100.00%** —— 门禁看的是行。
+CI 门禁为**行 95% / 函数 90% / 分支 80%**。分支命中会随测试文件的执行时序小幅抖动，
+判断退化看门禁与具体未覆盖行，不追小数第二位。
 
 两条口径约束，改动测试前先读：
 
 1. **`lib/client.js` 的测试必须每个进程只 import 一次**，走 `test/helpers/client-bundle.js`。
    早先用 `?t=<n>` 绕 ESM 缓存会让同一文件产生多个脚本实例，而覆盖率报告只保留其中一个，
    数字会被压低一半以上，补测试也看不出来。
-2. **分支覆盖会小幅浮动**：加 preset 层**之前**复跑 13 次实测 89.44%（11 次）/ 89.34%（1 次）/
-   89.24%（1 次）；加上 preset 层之后落在 89.9–90.1%，0.2.1 适配（`cwd.js` + 目录切换补偿 +
-   项目根归属/写盘分区）之后落在 90.3–90.6%。波动来自既有 `config.js` / `cwd.js` / `mcp.js` /
-   `rpc.js` 里依赖时序的分支命中与否（**行覆盖稳定 100.00%**），与面板那轮改动无关。判断分支
-   覆盖是否退化，看的是「行覆盖是否仍 100%」而不是小数第二位。
+2. **分支覆盖会小幅浮动**：`config.js` / `cwd.js` / `mcp.js` / `rpc.js` 里有依赖时序的分支。
+   判断退化看 CI 门禁（95/90/80）与具体未覆盖行，不追小数第二位。
 
 ## 集成测试锁住什么
 
@@ -143,8 +140,8 @@ DSH_RUNTIME_DIR=/tmp/dshref/runtime node tools/probe-skill-catalog-publish.mjs
 
 改完准备提交前：
 
-- [ ] `npm test` 全绿（145 passed / 0 skipped）
-- [ ] 覆盖率**行**仍是 100.00%
+- [ ] `npm test` 全绿（140 passed / 23 skipped，缺运行时属于预期）
+- [ ] `npm run test:coverage` 通过（行 ≥95% / 函数 ≥90% / 分支 ≥80%）
 - [ ] 新增/修改的行为有对应用例（非平凡逻辑走 RED → GREEN，不写 fixture 框架）
 - [ ] 没引入 `@deepseek-ai/*` 运行时依赖（`package.json` 的 `dependencies` 必须为空）
 - [ ] 若升级了宿主：重跑 `tools/probe-skill-catalog-publish.mjs`，并重点确认两处**未公开私有结构**

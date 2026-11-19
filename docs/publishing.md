@@ -1,6 +1,6 @@
 # 发布到 DSH 插件市场
 
-> 核对时间：2026-11-18，宿主 `0.2.2-rc.3`。DSH 的插件分发是「包 + 索引」，没有中心化上传后台；
+> 核对时间：2026-11-19，宿主 `0.2.2-rc.5`。DSH 的插件分发是「包 + 索引」，没有中心化上传后台；
 > 官方在 2026-11-05 才宣布筹建官方插件市场，当前版本里能用的只有实验性的自定义索引。
 
 ## 机制
@@ -21,6 +21,15 @@ DSH 不校验索引里的声明，只校验格式；安装时仍走正常的插�
 - [Plugin indexes](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/guide/plugin-market.md)
 - 索引校验器：[`@deepseek-ai/dsh-plugin-market-index`](https://www.npmjs.com/package/@deepseek-ai/dsh-plugin-market-index)
 - 官方索引生成器：`apps/plugin-market-generator`（从 npm 包名 / Git 仓库清单生成）
+
+## 当前状态（2026-11-19）
+
+仓库还没有推送到 GitHub，npm 上也没有 `dsh-workspace-capabilities`（`npm view` 404）。
+因此下面三种安装方式目前都不可用，只有 README 的「本地源码安装」能工作；发布顺序建议是：
+
+1. 推送公开仓库（`gh repo create ... --public`）；
+2. 配置 `NPM_TOKEN` 并推 `v0.1.0` tag，让 release workflow 发 npm；
+3. 等索引 URL 生效后，再在 README 首屏恢复 npm 一行安装。
 
 ## 本项目采用的方案
 
@@ -47,7 +56,7 @@ jsDelivr 读 `main` 分支，CDN 快、不受 GitHub raw 15 秒超时影响；�
 ## 发布步骤
 
 1. 改 `package.json` 的 `version`，补 `CHANGELOG.md`。
-2. 跑 `npm test`，确认全绿。
+2. 跑 `npm test` 与 `npm run test:coverage`，确认全绿。
 3. 提交代码并打 tag：`git tag v0.1.0`。
 4. 生成索引（会钉在当前 HEAD 上）：
 
@@ -65,6 +74,9 @@ jsDelivr 读 `main` 分支，CDN 快、不受 GitHub raw 15 秒超时影响；�
 
 6. 提交 `index.json`，推送仓库与 tag。
 7. 用 `curl` 确认索引 URL 返回 200 且是刚生成的 JSON；在 DSH 里添加索引源，实际安装一次。
+8. 重点验证 client 半边真的注册成功：设置页应出现「工作区能力」。`client.js` 的
+   `window.__ModuleLoader__.load({ id })` 必须与包名一致，否则会报
+   `loaded without registering "<包名>" via __ModuleLoader__._load`。
 
 > `index.json` 不能钉住「包含它自己的那次提交」——先提交代码并打 tag，再生成索引、单独提交。
 > 索引里的 commit 指向代码提交即可，索引文件本身晚一个提交没有影响。

@@ -2,15 +2,15 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
-> **编号说明**：开发期内部版本号曾是 `0.1.0`（见归档的
-> [`docs/archive/2026-10-11-workspace-capabilities-panel-plan.md`](docs/archive/2026-10-11-workspace-capabilities-panel-plan.md)）。
-> 项目转入迭代维护阶段时统一起见，**当前状态重新编号为 `0.0.1`**，此后按语义化版本递增。
+> **编号说明**：开发期内部版本号曾是 `0.1.0`，转入迭代维护后重新编号为 `0.0.1`；首个公开发布版
+> 定为 `0.1.0`，此后按语义化版本递增。历史方案见
+> [`docs/archive/2026-10-11-workspace-capabilities-panel-plan.md`](docs/archive/2026-10-11-workspace-capabilities-panel-plan.md)。
 
-## [0.1.0] - 2026-11-18
+## [0.1.0] - 2026-11-19
 
 ### 发布
 
-- **首个公开发布版**：包名从 `dsh-workspace-scope` 改为 `dsh-workspace-capabilities`，避免与 npm 上
+- **首个发布版**：包名从 `dsh-workspace-scope` 改为 `dsh-workspace-capabilities`，避免与 npm 上
   Ri0n72Y 的独立实现重名；插件行 id 仍是 `workspace-scope`，profiles 里的 id 覆盖不受影响。
 - 补齐发布元数据：`repository` / `homepage` / `bugs` / `keywords` / `engines.dsh`、`locale/en.json`、
   `locale/zh.json`、`icon.svg`；新增 format 1 市场索引（`index.json`）与生成、校验脚本
@@ -39,6 +39,12 @@
 
 ### 修复
 
+- **client 半边的模块注册 id 与包名不一致**：`lib/client.js` 仍以 `dsh-workspace-scope` 调
+  `window.__ModuleLoader__.load()`，改名后客户端报 `loaded without registering
+  "dsh-workspace-capabilities"`，设置页不出现「工作区能力」。现已改为与包名一致，并同步更新
+  槽位外部的注释与测试断言；localStorage 的工作区记忆键也一并改名（旧选择会重置一次）。
+- **文档与实测数字校准**：README / README.en / architecture / development 统一到宿主
+  `0.2.2-rc.5`、163 用例与 2026-11-19 的覆盖率（行 99.21% / 分支 88.04% / 函数 94.33%）。
 - **子 agent 首个模型步抢跑 MCP 屏蔽**（`agent/created` 竞态）：MCP deny 与提示词遮蔽都要读盘，
   而子 agent 的创建在 `agent/created` 返回后立刻开始第一个模型步。原实现 fire-and-forget，
   子 agent 的首个 `request/header` 会拿到完整的 MCP 工具面（实测 306 个工具 / 234 个
@@ -50,12 +56,17 @@
   不再访问插件 ctx 的 `ctx.tools` —— 重载窗口里插件 fiber 可能尚未 active，后者会抛
   `cannot get required service "tools" in inactive context`，让首次 apply 失败。
 
+### 文档
+
+- 新增三张真实界面截图（`docs/images/panel.png`、`skills.png`、`mcp.png`），中英文 README
+  同步引用；补发布状态说明，避免把尚未公开的 npm / Git / 索引命令写成现在可用。
+
 ### 兼容
 
 - **适配宿主 `0.2.1-rc.2`**（App 2026-10-17 更新）。插件依赖的宿主契约未变：
   `dsh-skill` 注册表（`collectCache` / `revision` / provider 协议）、`agentPresets.generations`、
   `tools.restrict`、`connection.requestRejection`、两个 client slot 的声明与 props 均与
-  `0.2.0-rc.2` 一致。实测：单测 122/122、集成 23/23、目录发布探针全部通过。
+  `0.2.0-rc.2` 一致。当时的实测：单测 122/122、集成 23/23、目录发布探针全部通过（当前基线见 `docs/development.md`）。
 - 集成 harness 与探针补 `workingDirectory` 服务替身：`dsh-tool-skill` 在 0.2.1 的 `inject` 新增
   该服务，缺它时宿主插件不装配，目录发布用例会静默变成「0 条发布」。
 - 文档同步宿主基线到 `0.2.1-rc.2`，并按新运行时复核 `architecture.md` 第 2、3 节的宿主行号。

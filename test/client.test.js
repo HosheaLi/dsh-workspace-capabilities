@@ -16,7 +16,7 @@ import { loadBundleEntry, seedRequire } from './helpers/client-bundle.js';
 /** 让模块在 node 里可加载：拿到共享的 bundle 入口，再 factory 出本用例专属的 exports。 */
 async function loadBundle() {
   const entry = await loadBundleEntry();
-  assert.equal(entry.id, 'dsh-workspace-scope');
+  assert.equal(entry.id, 'dsh-workspace-capabilities');
 
   const React = {
     createElement: () => null,

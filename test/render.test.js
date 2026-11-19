@@ -600,7 +600,7 @@ test('设置面板：状态下拉/删除显式配置/批量/默认/MCP/搜索/�
   const workspaceSelect = findElement(view(), (element) => element.type === 'select' && element.props.value === MIN_STATE.scope.cwd);
   workspaceSelect.props.onChange({ target: { value: '/Users/example/code/demo' } });
   await flush();
-  assert.equal(storage.get('dsh-workspace-scope.cwd'), '/Users/example/code/demo', '选择的工作区要记住');
+  assert.equal(storage.get('dsh-workspace-capabilities.cwd'), '/Users/example/code/demo', '选择的工作区要记住');
 });
 
 test('设置面板：勾选与批量条——全选只覆盖可管理行，应用后清空勾选并回报结果', async () => {

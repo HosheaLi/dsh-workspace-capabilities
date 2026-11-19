@@ -1,6 +1,6 @@
 # dsh-workspace-capabilities
 
-[![ci](https://github.com/HosheaLi/dsh-workspace-capabilities/actions/workflows/ci.yml/badge.svg)](https://github.com/HosheaLi/dsh-workspace-capabilities/actions/workflows/ci.yml) [![npm](https://img.shields.io/npm/v/dsh-workspace-capabilities)](https://www.npmjs.com/package/dsh-workspace-capabilities) [![DSH tested](https://img.shields.io/badge/DSH%20tested-0.2.2--rc.3-f59e0b)](https://github.com/deepseek-ai/deepseek-harness/releases) [![license](https://img.shields.io/github/license/HosheaLi/dsh-workspace-capabilities)](LICENSE)
+[![ci](https://github.com/HosheaLi/dsh-workspace-capabilities/actions/workflows/ci.yml/badge.svg)](https://github.com/HosheaLi/dsh-workspace-capabilities/actions/workflows/ci.yml) [![npm](https://img.shields.io/npm/v/dsh-workspace-capabilities)](https://www.npmjs.com/package/dsh-workspace-capabilities) [![DSH tested](https://img.shields.io/badge/DSH%20tested-0.2.2--rc.5-f59e0b)](https://github.com/deepseek-ai/deepseek-harness/releases) [![license](https://img.shields.io/github/license/HosheaLi/dsh-workspace-capabilities)](LICENSE)
 
 Per-workspace control over which skills enter the model catalog and which MCP servers stay hidden in [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) — **both tool schemas and the MCP server-instruction prompt sections are masked**.
 
@@ -8,8 +8,12 @@ In one sentence: mark a skill `manual` and the model no longer sees it, while a 
 
 [中文 README](README.md)
 
+> **Release status (2026-11-19)**: the GitHub repository and the npm package are not public yet.
+> The npm, index, and Git install commands below become usable once they are; today, use the
+> local source install described under Install.
+
 - Zero runtime dependencies: the host half uses Node built-ins only, the client half uses the platform-provided `react`
-- Tested on DSH `0.2.2-rc.3` (Desktop, macOS); allowed range `>=0.2.1-rc.2 <0.3.0`
+- Tested on DSH `0.2.2-rc.5` (Desktop, macOS, 2026-11-19); allowed range `>=0.2.1-rc.2 <0.3.0`
 
 ## Three states
 
@@ -22,6 +26,11 @@ In one sentence: mark a skill `manual` and the model no longer sees it, while a 
 Default is `pinned`: installing the plugin changes nothing until you mark something.
 
 ## Install
+
+> **Release status (2026-11-19)**: not yet on npm or a public repository. The commands in this
+> section are the post-release paths; the local source install works today.
+
+After the npm release:
 
 ```sh
 dsh plugin --profile web add dsh-workspace-capabilities
@@ -39,6 +48,20 @@ Or install a pinned commit/tag directly:
 
 ```sh
 dsh plugin --profile web add "git+https://github.com/HosheaLi/dsh-workspace-capabilities.git#v0.1.0"
+```
+
+Local source install (works today, development):
+
+```bash
+ln -sfn ~/code/dsh-workspace-capabilities ~/.dsh/profiles/desktop/node_modules/dsh-workspace-capabilities
+```
+
+Then add the row in the profile's `cordis.patch.yml`:
+
+```yaml
+- insert:
+    - id: workspace-scope
+      name: 'dsh-workspace-capabilities'
 ```
 
 A host restart is required after adding the bundle (both halves assemble at startup).
@@ -74,6 +97,12 @@ Two layers, project first. Keys are skill names or wildcards (`*` any run, `?` o
 
 ## Panel
 
+![Workspace capabilities panel: workspace and default state, catalog size, state counts, skill table](docs/images/panel.png)
+
+![Skill table: source column, three-state dropdowns, folded non-manageable group](docs/images/skills.png)
+
+![MCP server switches: hiding also masks tool schemas and server instructions](docs/images/mcp.png)
+
 | Where | What |
 | --- | --- |
 | Settings → **Workspace capabilities** | Header, workspace and default-state rows, catalog size and per-state counts, search and "non-default only", skill table (checkbox / name and metadata / source / description / state dropdown, with non-manageable rows folded into their own group), batch bar, MCP server switches with a "visible x/y" check |
@@ -103,8 +132,8 @@ Both plugins solve per-workspace skill/MCP policy; they cannot be installed toge
 
 | DSH | Status |
 | --- | --- |
-| `0.2.2-rc.3` (Desktop, macOS) | tested in daily use; unit + integration tests pass |
-| `0.2.1-rc.5` (Web) | expected to work; not independently re-verified |
+| `0.2.2-rc.5` (Desktop, macOS) | tested in daily use; 163 tests pass (2026-11-19) |
+| `0.2.1-rc.5` (Web) | same host contracts; expected to work, not re-verified on Web |
 | `>=0.2.1-rc.2 <0.3.0` | allowed by `engines.dsh` |
 | `<0.2.1-rc.2` | unsupported |
 
@@ -115,6 +144,10 @@ npm test           # 163 tests: 140 unit pass, 23 integration skipped without a 
 npm run test:coverage
 npm run build:index   # regenerate the market index after a release commit
 ```
+
+Coverage (2026-11-19): **lines 99.21% / branches 88.04% / functions 94.33%**; CI requires
+95% / 90% / 80%. CI also runs on Windows; a `v*` tag publishes to npm and creates a GitHub
+Release.
 
 ## License
 
