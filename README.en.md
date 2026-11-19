@@ -74,6 +74,10 @@ A host restart is required after adding the bundle (both halves assemble at star
 > while the old code is still running. Verify with the dependency version/commit in `list_plugins`,
 > not with the install receipt.
 
+The panel follows the DSH UI language (Chinese / English) through the host's `ctx.locale` `t` seat;
+hosts without a locale service (before 0.2.2) fall back to Chinese. Skill names, descriptions and
+paths are data and stay untranslated.
+
 ## Configuration
 
 Two layers, project first. Keys are skill names or wildcards (`*` any run, `?` one character):

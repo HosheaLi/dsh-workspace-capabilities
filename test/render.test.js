@@ -1095,3 +1095,27 @@ test('设置面板：配置损坏时给出可见提示，并区分是否沿用�
     '沿用了上一次有效值时要说明，避免用户以为策略没生效',
   );
 });
+
+test('设置面板：宿主注入英文 t 时整块渲染英文文案，不残留 UI 中文', async () => {
+  const { Component, react, logic } = await mountSection({ state: MIN_STATE });
+  const dictionary = logic.MESSAGES.en;
+  const t = (key, params) => {
+    const template = dictionary[key] ?? key;
+    return params === undefined
+      ? template
+      : template.replace(/\{(\w+)\}/g, (match, name) => (name in params ? String(params[name]) : match));
+  };
+
+  react.render(Component, { close: () => {}, t });
+  const { effects } = react.render(Component, { close: () => {}, t });
+  for (const effect of effects) effect();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const text = collectText(react.render(Component, { close: () => {}, t }).tree).join(' ');
+
+  assert.match(text, /Workspace capabilities/, '分区标题应走英文');
+  assert.match(text, /Default state/, '表单标签应走英文');
+  assert.ok(
+    !/工作区能力|自动注入|仅手动|目录大小不变|选择工作区/.test(text),
+    `英文界面不得残留 UI 中文：${text.slice(0, 200)}`,
+  );
+});

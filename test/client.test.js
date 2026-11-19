@@ -100,3 +100,43 @@ test('展示辅助：字节数与路径收敛', async () => {
   assert.equal(__logic.shortenPath('C:\\Users\\someone\\'), '~');
   assert.equal(__logic.shortenPath('/Users/someone/'), '~');
 });
+
+test('i18n：字典 zh/en 键集合一致，英文值里没有中文', async () => {
+  const { __logic } = await loadBundle();
+  const { zh, en } = __logic.MESSAGES;
+  assert.deepEqual(Object.keys(en).sort(), Object.keys(zh).sort(), '两种语言的键必须一一对应');
+  const leaked = Object.entries(en).filter(([, value]) => /[\u4e00-\u9fa5]/.test(value));
+  assert.deepEqual(leaked, [], '英文文案不得残留中文（漏翻会在这里直接暴露）');
+});
+
+test('i18n：有 locale 服务时注册字典、插槽声明 locale 席位、标签按当前语言解析', async () => {
+  const exports = await loadBundle();
+  const registered = [];
+  const registrations = [];
+  const locale = {
+    register: (ns, dicts) => {
+      registered.push({ ns, dicts });
+      return () => {};
+    },
+    resolveText: (text) => text.en,
+  };
+  const ctx = {
+    get: (name) => (name === 'locale' ? locale : undefined),
+    effect: (factory) => factory(),
+    slots: {
+      inject: (_key, callback) => callback(),
+      register: (options) => {
+        registrations.push(options);
+        return () => {};
+      },
+    },
+  };
+  exports.apply(ctx);
+
+  assert.equal(registered.length, 1);
+  assert.equal(registered[0].ns, 'workspace-scope');
+  assert.ok(registered[0].dicts.zh !== undefined && registered[0].dicts.en !== undefined, '两种语言的字典都要注册');
+  for (const options of registrations) assert.equal(options.locale, 'workspace-scope', '声明 locale 席位，宿主才会注入 t');
+  const section = registrations.find((options) => options.name === 'settings.section');
+  assert.equal(section.label, 'Workspace capabilities', '插槽显示名要按当前语言解析');
+});
