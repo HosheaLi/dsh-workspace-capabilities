@@ -76,6 +76,10 @@ mkdir -p /tmp/dshref && mv /tmp/dshref-extract/dsh /tmp/dshref/runtime
 CI 门禁为**行 95% / 函数 90% / 分支 80%**。分支命中会随测试文件的执行时序小幅抖动，
 判断退化看门禁与具体未覆盖行，不追小数第二位。
 
+脚本里显式带了 `--test-coverage-exclude="test/**"`，不能删：Node 22（CI 用的版本）默认把
+测试文件本身也算进 `all files`，而 Node 26（本地）默认不算 —— 不排除时同一份代码在 CI 上是
+88% 行覆盖、在本机是 99%，门禁会稳定误报。
+
 两条口径约束，改动测试前先读：
 
 1. **`lib/client.js` 的测试必须每个进程只 import 一次**，走 `test/helpers/client-bundle.js`。
