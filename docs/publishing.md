@@ -24,12 +24,14 @@ DSH 不校验索引里的声明，只校验格式；安装时仍走正常的插�
 
 ## 当前状态（2026-11-19）
 
-仓库还没有推送到 GitHub，npm 上也没有 `dsh-workspace-capabilities`（`npm view` 404）。
-因此下面三种安装方式目前都不可用，只有 README 的「本地源码安装」能工作；发布顺序建议是：
+仓库已公开（`https://github.com/HosheaLi/dsh-workspace-capabilities`），索引地址实测返回 200，
+所以「从索引安装」与「本地源码安装」可用。npm 上仍没有 `dsh-workspace-capabilities`
+（`npm view` 404），`v0.1.0` tag 也还没推 —— npm 一行安装与 Git 固定版本安装都还不可用。
+剩下的发布步骤：
 
-1. 推送公开仓库（`gh repo create ... --public`）；
-2. 配置 `NPM_TOKEN` 并推 `v0.1.0` tag，让 release workflow 发 npm；
-3. 等索引 URL 生效后，再在 README 首屏恢复 npm 一行安装。
+1. 配置 `NPM_TOKEN`（见「仓库自动化」）；没有它时 tag 触发的 release 会在 publish 步失败；
+2. 推 `v0.1.0` tag，让 release workflow 发 npm 并建 GitHub Release；
+3. npm 发布后，README 首屏的状态块与 npm 徽章即可去掉「待发布」口径。
 
 ## 本项目采用的方案
 

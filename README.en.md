@@ -8,9 +8,8 @@ In one sentence: mark a skill `manual` and the model no longer sees it, while a 
 
 [中文 README](README.md)
 
-> **Release status (2026-11-19)**: the GitHub repository and the npm package are not public yet.
-> The npm, index, and Git install commands below become usable once they are; today, use the
-> local source install described under Install.
+> **Release status (2026-11-19)**: the repository and the plugin index are public, so the index
+> install below works today; the npm package and the `v0.1.0` tag are not published yet.
 
 - Zero runtime dependencies: the host half uses Node built-ins only, the client half uses the platform-provided `react`
 - Tested on DSH `0.2.2-rc.5` (Desktop, macOS, 2026-11-19); allowed range `>=0.2.1-rc.2 <0.3.0`
@@ -29,8 +28,8 @@ Default is `pinned`: installing the plugin changes nothing until you mark someth
 
 ## Install
 
-> **Release status (2026-11-19)**: not yet on npm or a public repository. The commands in this
-> section are the post-release paths; the local source install works today.
+> **Release status (2026-11-19)**: the index install works today; the npm and Git installs
+> become usable once the package and the `v0.1.0` tag are published.
 
 After the npm release:
 
