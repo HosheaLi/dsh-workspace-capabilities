@@ -132,7 +132,7 @@ Both plugins solve per-workspace skill/MCP policy; they cannot be installed toge
 
 | DSH | Status |
 | --- | --- |
-| `0.2.2-rc.5` (Desktop, macOS) | tested in daily use; 163 tests pass (2026-11-19) |
+| `0.2.2-rc.5` (Desktop, macOS) | tested in daily use; 163 tests (140 pass, 23 integration skipped) (2026-11-19) |
 | `0.2.1-rc.5` (Web) | same host contracts; expected to work, not re-verified on Web |
 | `>=0.2.1-rc.2 <0.3.0` | allowed by `engines.dsh` |
 | `<0.2.1-rc.2` | unsupported |
