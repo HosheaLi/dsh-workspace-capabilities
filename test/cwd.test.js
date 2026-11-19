@@ -98,7 +98,8 @@ test('agentScopeMatch：按项目根匹配，跨项目根与无效入参都不�
 
 test('pathKey：归一化消掉 .. 与尾分隔符，Windows 上再压成小写', () => {
   const base = join(tmpdir(), 'wscope-key');
-  assert.equal(pathKey(join(base, 'a', '..', 'a')), join(base, 'a'), '.. 必须被消掉');
+  // 期望值也要走 pathKey：Windows 上它会再小写一次，直接比原始路径会假红。
+  assert.equal(pathKey(join(base, 'a', '..', 'a')), pathKey(join(base, 'a')), '.. 必须被消掉');
   assert.equal(pathKey(`${join(base, 'a')}/`), pathKey(join(base, 'a')), '尾分隔符不影响');
   if (process.platform === 'win32') {
     assert.equal(pathKey('C:\\Temp\\Foo'), pathKey('c:\\temp\\foo'), 'Windows 上大小写不敏感');
