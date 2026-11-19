@@ -228,6 +228,10 @@ Desktop 的 `desktop` profile 不归公开 CLI 管，请在 **插件** 页面安
 
 **所有方式都需要重启宿主进程**（host 与 client 半边都在启动时装配）。
 
+> **切换安装来源（源码 `link:` ↔ Git 固定版本）后必须重启 DSH**：宿主 Loader 会持有首次装配时
+> 解析到的绝对路径，`install_bundle` 返回 `applied` 也仍可能继续跑旧代码。判断依据不看安装回执，
+> 看 `list_plugins` 里的依赖版本/commit 是否已更新，以及设置页是否出现预期的新行为。
+
 ## 能力边界
 
 只有**文件系统来源**的技能可被管理：`source` ∈ `project-dsh` / `project-agents` / `custom` /

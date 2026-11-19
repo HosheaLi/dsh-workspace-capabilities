@@ -1079,3 +1079,19 @@ test('设置面板：effect cleanup 可安全执行（卸载后不再更新状�
     '每个 effect 都应返回 cleanup（数据加载取消 + hover 计时器清理）',
   );
 });
+
+test('设置面板：配置损坏时给出可见提示，并区分是否沿用了上一次有效配置', async () => {
+  const broken = await mountSectionAndWait({
+    state: { ...MIN_STATE, scope: { ...MIN_STATE.scope, readError: 'JSON 解析失败：坏' } },
+  });
+  assert.match(collectText(broken.view()).join(' '), /配置文件有问题：JSON 解析失败/, '损坏必须可见');
+
+  const fallback = await mountSectionAndWait({
+    state: { ...MIN_STATE, scope: { ...MIN_STATE.scope, readError: 'JSON 解析失败：坏', readFallback: true } },
+  });
+  assert.match(
+    collectText(fallback.view()).join(' '),
+    /已沿用上一次有效配置/,
+    '沿用了上一次有效值时要说明，避免用户以为策略没生效',
+  );
+});

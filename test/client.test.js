@@ -96,4 +96,7 @@ test('展示辅助：字节数与路径收敛', async () => {
   assert.equal(__logic.shortenPath('c:\\users\\someone\\code\\x'), '~\\code\\x', '大小写不敏感');
   assert.equal(__logic.shortenPath('C:\\Users\\someone'), 'C:\\Users\\someone');
   assert.equal(__logic.shortenPath('D:\\work\\x'), 'D:\\work\\x');
+  // 用户根带尾分隔符：收敛成单个 `~`（不带尾分隔符的原样保留，与 POSIX 行为一致）。
+  assert.equal(__logic.shortenPath('C:\\Users\\someone\\'), '~');
+  assert.equal(__logic.shortenPath('/Users/someone/'), '~');
 });

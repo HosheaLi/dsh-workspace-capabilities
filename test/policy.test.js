@@ -74,3 +74,44 @@ test('在途 read 不得把 invalidate 之后作废的结果写回缓存', async
     await rm(home, { recursive: true, force: true });
   }
 });
+
+test('配置损坏时沿用上一次有效策略，而不是静默回落默认（fail-open 修复）', async () => {
+  const { home, cwd, projectPath } = await makeWorkspace();
+  try {
+    await writeFile(projectPath, JSON.stringify({ version: 1, skills: { alpha: 'off' }, mcp: {} }));
+    const policy = createPolicyResolver({ env: { DSH_HOME: home } });
+    assert.equal((await policy.read(cwd)).stateOf('alpha'), 'off');
+
+    // 手误写坏：不得把原本 off 的技能静默放回目录，否则"省 token"的目的当场失效。
+    await writeFile(projectPath, '{ 坏 json', 'utf8');
+    policy.invalidate();
+    const broken = await policy.read(cwd);
+    assert.equal(broken.stateOf('alpha'), 'off', '坏文件必须沿用上一次有效配置');
+    assert.equal(broken.projectRead.fallback, true);
+    assert.match(broken.projectRead.error ?? '', /JSON 解析失败/, '错误仍要带出去，面板才能提示');
+
+    // 修好后回到正常路径，并且不再标记 fallback。
+    await writeFile(projectPath, JSON.stringify({ version: 1, skills: { alpha: 'manual' }, mcp: {} }));
+    policy.invalidate();
+    const fixed = await policy.read(cwd);
+    assert.equal(fixed.stateOf('alpha'), 'manual');
+    assert.equal(fixed.projectRead.fallback, undefined);
+    assert.equal(fixed.projectRead.error, undefined);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test('首次启动就读到坏文件：没有历史值时只能回落空配置（仍带 error）', async () => {
+  const { home, cwd, projectPath } = await makeWorkspace();
+  try {
+    await writeFile(projectPath, '{ 坏 json', 'utf8');
+    const policy = createPolicyResolver({ env: { DSH_HOME: home } });
+    const read = await policy.read(cwd);
+    assert.equal(read.stateOf('alpha'), 'pinned');
+    assert.equal(read.projectRead.fallback, undefined, '没有历史值就谈不上沿用');
+    assert.match(read.projectRead.error ?? '', /JSON 解析失败/);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});

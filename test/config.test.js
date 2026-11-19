@@ -212,6 +212,26 @@ test('读缺失/损坏文件都降级，损坏时带 error', async () => {
   }
 });
 
+test('UTF-8 BOM：带 BOM 的配置照常解析，且仍可写盘（Windows 编辑器常见）', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'wscope-bom-'));
+  try {
+    const path = join(base, 'cfg.json');
+    // PowerShell 5.1 的 `>` / 记事本「另存为 UTF-8」都会写 BOM；JSON.parse 不认这个前缀。
+    await writeFile(path, `\uFEFF${JSON.stringify({ version: 1, skills: { a: 'off' }, mcp: {} }, undefined, 2)}\n`, 'utf8');
+
+    const read = await readConfigFile(path);
+    assert.equal(read.error, undefined, 'BOM 不该让整份配置降级');
+    assert.equal(read.config.skills.a, 'off');
+
+    // 写盘同样不能因为 BOM 报"不是合法 JSON"而拒绝用户的修改。
+    await updateConfigFile(path, (config) => withSkillState(config, 'b', 'manual'));
+    const parsed = JSON.parse(await readFile(path, 'utf8'));
+    assert.deepEqual(parsed.skills, { a: 'off', b: 'manual' }, '写回的是无 BOM 的干净 JSON');
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
 test('原子写：并发读-改-写同一路径后文件是完整 JSON，且不留 tmp', async () => {
   const base = await mkdtemp(join(tmpdir(), 'wscope-write-'));
   try {

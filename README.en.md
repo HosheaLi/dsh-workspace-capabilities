@@ -69,6 +69,11 @@ Then add the row in the profile's `cordis.patch.yml`:
 
 A host restart is required after adding the bundle (both halves assemble at startup).
 
+> **Restart after switching install sources** (local `link:` <-> pinned Git commit): the host Loader
+> keeps the absolute path it resolved at first assembly, so `install_bundle` can report `applied`
+> while the old code is still running. Verify with the dependency version/commit in `list_plugins`,
+> not with the install receipt.
+
 ## Configuration
 
 Two layers, project first. Keys are skill names or wildcards (`*` any run, `?` one character):

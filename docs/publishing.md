@@ -52,7 +52,9 @@ https://cdn.jsdelivr.net/gh/HosheaLi/dsh-workspace-capabilities@main/index.json
 
 jsDelivr 读 `main` 分支，CDN 快、不受 GitHub raw 15 秒超时影响；代价是它有缓存，发新版本后
 索引可能滞后（可用 `https://purge.jsdelivr.net/gh/HosheaLi/dsh-workspace-capabilities@main/index.json`
-主动刷新）。GitHub Pages 也可以，但要在仓库设置里开启；GitHub raw 在部分网络下会撞上 DSH 的
+主动刷新）。实测 purge 后各边缘节点收敛并不同步（同一时刻 `cdn` 还是旧内容、`gcore` 已是新内容），
+所以**装完要核对依赖里的 commit**：`index.json` 钉的是哪个 commit，profile 的依赖就应该是哪个；
+对不上就再 purge 一次或先改用 `raw.githubusercontent.com` 的地址。GitHub Pages 也可以，但要在仓库设置里开启；GitHub raw 在部分网络下会撞上 DSH 的
 15 秒抓取预算。
 
 ## 发布步骤

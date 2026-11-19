@@ -446,6 +446,29 @@ test('createRpcMethods：子目录 cd 后仍按项目根匹配 agent 与 MCP 探
   }
 });
 
+test('createRpcMethods：配置里出现过、但当前没有注册工具的 MCP server 仍要列出', async () => {
+  // 回归：原先 mcp 清单只来自已注册的工具 schema，于是"配置里关掉了、但服务器当前没起"的
+  // 一行会从面板消失，用户再也没有入口把它重新打开（只能手改 JSON）。
+  const env = await makeHostEnv();
+  try {
+    await mkdir(join(env.project, '.dsh'), { recursive: true });
+    await writeFile(
+      join(env.project, '.dsh', 'skills-scope.json'),
+      JSON.stringify({ version: 1, skills: {}, mcp: { ghost: false } }),
+      'utf8',
+    );
+    const { methods } = makeMethods({ home: env.home, workspaceRegistry: env.registry(env.project) });
+    const state = await methods.state({ cwd: env.project });
+    const row = state.mcp.find((server) => server.name === 'ghost');
+    assert.ok(row, '配置里的服务器必须出现在面板数据里');
+    assert.equal(row.toolCount, 0);
+    assert.equal(row.enabled, false);
+    assert.equal(row.explicit, true);
+  } finally {
+    await rm(env.base, { recursive: true, force: true });
+  }
+});
+
 test('createRpcMethods：cd 进入的目录只可查看、不可写盘（不扩大插件写入面）', async () => {
   const env = await makeHostEnv();
   try {

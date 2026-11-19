@@ -51,6 +51,18 @@
 - **`shortenPath` 只认 POSIX home**：`lib/client.js` 现在也把 `C:\Users\<名字>\...` 收敛成 `~\...`。
 - **CI 恢复 Windows 矩阵**：`npm test` 在 `ubuntu-latest` 与 `windows-latest` 上跑，覆盖率门禁只在
   Ubuntu 上算；导出 `--test-coverage-exclude="test/**"` 消除 Node 22 / 26 的覆盖率分母差异。
+- **UTF-8 BOM 的合法配置被判为损坏**（Windows 实测）：PowerShell 5.1 与「记事本另存为 UTF-8」
+  会给文件加 BOM，`JSON.parse` 直接抛错，整份配置降级为空 → 技能静默回到目录。读、写两侧都先
+  剥掉 `\uFEFF`。
+- **损坏配置改为沿用上一次有效值**：`policy.js` 按文件路径记住最后一次成功解析的配置，坏文件
+  沿用它并把 `error` 带出去（面板显示「已沿用上一次有效配置：…」）。原先的行为是静默回落空配置，
+  手误一个字符就会让原本 `off` 的技能全部回到模型目录。进程首次启动即坏时仍回落空配置（无历史值）。
+- **配置里出现过、但当前没有注册工具的 MCP server 从面板消失**：清单改为「已注册工具 ∪ 配置里
+  出现过的名字」，否则用户在面板里关掉一个当前未运行的服务器后，再也找不到把它打开的入口。
+- **`shortenPath` 的用户根边界**：`C:\Users\<名字>\` 与 `/Users/<名字>/` 现在收敛成 `~`
+  （不带尾分隔符的用户根仍原样保留）。
+- **文档补充「切换安装来源后必须重启 DSH」**：宿主 Loader 会持有首次装配时的绝对路径，
+  源码 `link:` 与 Git 固定版本互换后，`install_bundle` 报 `applied` 也可能仍在跑旧代码。
 - **client 半边的模块注册 id 与包名不一致**：`lib/client.js` 仍以 `dsh-workspace-scope` 调
   `window.__ModuleLoader__.load()`，改名后客户端报 `loaded without registering
   "dsh-workspace-capabilities"`，设置页不出现「工作区能力」。现已改为与包名一致，并同步更新
