@@ -89,7 +89,7 @@ jsDelivr 读 `main` 分支，CDN 快、不受 GitHub raw 15 秒超时影响；�
 
 | 工作流 | 触发 | 做什么 |
 | --- | --- | --- |
-| `.github/workflows/ci.yml` | push `main` / PR | Ubuntu 上跑 `npm test` 与覆盖率门禁（行 95% / 函数 90% / 分支 80%） |
+| `.github/workflows/ci.yml` | push `main` / PR | Ubuntu + Windows 上跑 `npm test`；覆盖率门禁只在 Ubuntu 上算（行 95% / 函数 90% / 分支 80%） |
 | `.github/workflows/release.yml` | push `v*` tag | 校验 tag 与 `package.json` 版本一致 → 跑测试 → `npm publish --provenance` → 建 GitHub Release |
 
 首次发布 npm 前，在仓库 **Settings → Secrets and variables → Actions** 里加 `NPM_TOKEN`

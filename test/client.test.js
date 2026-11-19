@@ -91,4 +91,9 @@ test('展示辅助：字节数与路径收敛', async () => {
   assert.equal(__logic.shortenPath('/home/me/code/x'), '~/code/x');
   assert.equal(__logic.shortenPath('/Users/someone'), '/Users/someone');
   assert.equal(__logic.shortenPath('/opt/other'), '/opt/other');
+  // Windows：盘符 + Users + 用户名收敛成 ~，保留反斜杠；C:\Users 之外不动。
+  assert.equal(__logic.shortenPath('C:\\Users\\someone\\code\\x'), '~\\code\\x');
+  assert.equal(__logic.shortenPath('c:\\users\\someone\\code\\x'), '~\\code\\x', '大小写不敏感');
+  assert.equal(__logic.shortenPath('C:\\Users\\someone'), 'C:\\Users\\someone');
+  assert.equal(__logic.shortenPath('D:\\work\\x'), 'D:\\work\\x');
 });

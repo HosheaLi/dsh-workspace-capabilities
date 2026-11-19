@@ -13,8 +13,10 @@ In one sentence: mark a skill `manual` and the model no longer sees it, while a 
 
 - Zero runtime dependencies: the host half uses Node built-ins only, the client half uses the platform-provided `react`
 - Tested on DSH `0.2.2-rc.5` (Desktop, macOS, 2026-11-19); allowed range `>=0.2.1-rc.2 <0.3.0`
-- Verified on macOS / Linux only. The settings panel is **not adapted to Windows** (`lib/rpc.js`
-  treats a POSIX absolute path as the only valid `cwd`), so CI runs on Ubuntu alone.
+- Windows: the settings panel used to be **unusable** (`lib/rpc.js` accepted only POSIX absolute
+  `cwd`, so every `C:\...` was rejected in a 2026-11-19 test on Windows 11). It now judges paths
+  per platform and normalizes workspace keys; unit tests run on CI's `windows-latest`. The panel
+  still awaits a real-device re-check.
 
 ## Three states
 
@@ -147,7 +149,8 @@ npm run build:index   # regenerate the market index after a release commit
 ```
 
 Coverage (2026-11-19): **lines 99.21% / branches 88.04% / functions 94.33%**; CI requires
-95% / 90% / 80%. CI runs on Ubuntu; a `v*` tag publishes to npm and creates a GitHub Release.
+95% / 90% / 80%. CI runs on Ubuntu and Windows (coverage gate on Linux only); a `v*` tag
+publishes to npm and creates a GitHub Release.
 
 ## License
 

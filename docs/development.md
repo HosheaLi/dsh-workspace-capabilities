@@ -43,6 +43,13 @@ DSH_RUNTIME_DIR=/tmp/dshref/runtime npm run test:integration
 npm run test:coverage
 ```
 
+**不要用裸 `node --test` 对比用例数**：Node 的默认发现规则把 `test/helpers/*.js` 也当成测试文件，
+输出会比 `npm test`（显式 `test/**/*.test.js`）多 3 条"通过"，看起来像 166 对 163。两者跑的是同一批
+用例；`npm test` 才是准绳。
+
+CI 在 `ubuntu-latest` 与 `windows-latest` 上跑 `npm test`；覆盖率门禁只在 Ubuntu 上执行
+（跨平台的用例顺序会让分支命中抖动，不在 Windows 上设门禁）。
+
 **解包运行时**（一次性）：
 
 ```bash

@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { agentScopeMatch, effectiveCwdOf, scopeRootOf } from '../lib/cwd.js';
+import { agentScopeMatch, effectiveCwdOf, pathKey, scopeRootOf } from '../lib/cwd.js';
 
 /** 造一个最小 agent（只带 session）。 */
 const agentOf = (cwd) => ({ id: 'ses-a', session: { header: { cwd } } });
@@ -93,5 +93,17 @@ test('agentScopeMatch：按项目根匹配，跨项目根与无效入参都不�
     assert.equal(await agentScopeMatch(ctx, project, undefined), undefined, '没有候选时返回 undefined');
   } finally {
     await rm(base, { recursive: true, force: true });
+  }
+});
+
+test('pathKey：归一化消掉 .. 与尾分隔符，Windows 上再压成小写', () => {
+  const base = join(tmpdir(), 'wscope-key');
+  assert.equal(pathKey(join(base, 'a', '..', 'a')), join(base, 'a'), '.. 必须被消掉');
+  assert.equal(pathKey(`${join(base, 'a')}/`), pathKey(join(base, 'a')), '尾分隔符不影响');
+  if (process.platform === 'win32') {
+    assert.equal(pathKey('C:\\Temp\\Foo'), pathKey('c:\\temp\\foo'), 'Windows 上大小写不敏感');
+    assert.equal(pathKey('C:\\Temp\\Foo\\'), pathKey('C:\\Temp\\Foo'), '尾分隔符不影响');
+  } else {
+    assert.notEqual(pathKey('/tmp/Foo'), pathKey('/tmp/foo'), 'POSIX 上大小写敏感，不能误合并');
   }
 });

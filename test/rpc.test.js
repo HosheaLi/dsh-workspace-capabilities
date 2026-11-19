@@ -16,6 +16,19 @@ import test from 'node:test';
 import { createPolicyResolver } from '../lib/policy.js';
 import { createRpcMethods, registerRpcSurface, RPC_PATH } from '../lib/rpc.js';
 
+/**
+ * 跨平台的假工作区根。
+ *
+ * Windows 上只有带盘符的路径才算绝对路径（`/w/a` 会让 `isAbsolute` 返回 false），
+ * 所以断言不能写死 `/w/...`。这里用 `join` 拼，两个平台得到各自的合法绝对路径。
+ * **只给不碰磁盘的用例用**（workspaces 列表与去重）；需要 `stat` 的用例一律用
+ * `makeHostEnv()` 建的真实临时目录。
+ */
+const FAKE_ROOT = process.platform === 'win32' ? 'C:\\w' : '/w';
+
+/** 拼一个假工作区路径（见 {@link FAKE_ROOT}）。 */
+const fake = (...parts) => join(FAKE_ROOT, ...parts);
+
 /** 载体替身：捕获注册的路由与事件监听，`register` 可被替换成抛错的实现。 */
 function makeCtx({ connection, register } = {}) {
   const listeners = [];
@@ -318,22 +331,22 @@ test('createRpcMethods：workspaces 合并注册表与会话 cwd 并去重', asy
   try {
     const workspaceRegistry = {
       list: () => [
-        { id: 7, title: '工作区 A', path: '/w/a' },
+        { id: 7, title: '工作区 A', path: fake('a') },
         { path: 123 }, // 丢弃：path 不是字符串
-        { id: 8, path: '/w/b' }, // title 缺省用 path
+        { id: 8, path: fake('b') }, // title 缺省用 path
       ],
     };
     const agents = [
-      { id: 'ses-1', session: { header: { cwd: '/w/a' } } }, // 与注册表重复
-      { id: 'ses-2', session: { header: { cwd: '/sessions/deep/dir' } } },
+      { id: 'ses-1', session: { header: { cwd: fake('a') } } }, // 与注册表重复
+      { id: 'ses-2', session: { header: { cwd: fake('sessions', 'deep', 'dir') } } },
       { id: 'ses-3' }, // 没有 cwd
     ];
     const { methods } = makeMethods({ home: env.home, agents, workspaceRegistry });
     const { workspaces } = await methods.workspaces();
 
-    assert.deepEqual(workspaces.map((workspace) => workspace.path), ['/w/a', '/w/b', '/sessions/deep/dir']);
+    assert.deepEqual(workspaces.map((workspace) => workspace.path), [fake('a'), fake('b'), fake('sessions', 'deep', 'dir')]);
     assert.equal(workspaces[0].title, '工作区 A');
-    assert.equal(workspaces[1].title, '/w/b');
+    assert.equal(workspaces[1].title, fake('b'));
     assert.equal(workspaces[2].title, 'dir', '会话工作区用最后一段做标题');
     assert.equal(workspaces[2].id, 'session:ses-2');
   } finally {
@@ -344,23 +357,23 @@ test('createRpcMethods：workspaces 合并注册表与会话 cwd 并去重', asy
 test('createRpcMethods：workspaces 用会话的**当前** cwd（cd 之后初始目录不再代表它）', async () => {
   const env = await makeHostEnv();
   try {
-    const sessionA = { header: { cwd: '/w/a' } };
-    const sessions = new Map([[sessionA, '/w/current']]);
+    const sessionA = { header: { cwd: fake('a') } };
+    const sessions = new Map([[sessionA, fake('current')]]);
     const workingDirectory = { get: (session) => sessions.get(session) ?? session?.header?.cwd };
     const agents = [
       { id: 'ses-1', session: sessionA },
-      { id: 'ses-2', session: { header: { cwd: '/sessions/initial' } } },
+      { id: 'ses-2', session: { header: { cwd: fake('sessions', 'initial') } } },
     ];
     const { methods } = makeMethods({
       home: env.home,
       agents,
       workingDirectory,
-      workspaceRegistry: env.registry('/w/current'),
+      workspaceRegistry: env.registry(fake('current')),
     });
     const { workspaces } = await methods.workspaces();
 
-    assert.deepEqual(workspaces.map((workspace) => workspace.path), ['/w/current', '/sessions/initial'], '当前目录优先，且与注册表去重');
-    assert.equal(workspaces[0].title, '/w/current');
+    assert.deepEqual(workspaces.map((workspace) => workspace.path), [fake('current'), fake('sessions', 'initial')], '当前目录优先，且与注册表去重');
+    assert.equal(workspaces[0].title, fake('current'));
   } finally {
     await rm(env.base, { recursive: true, force: true });
   }

@@ -10,8 +10,12 @@ permissions:
 
 jobs:
   test:
-    name: test (ubuntu)
-    runs-on: ubuntu-latest
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -24,4 +28,7 @@ jobs:
         run: npm test
 
       - name: Coverage gate
+        # 覆盖率只在 Linux 上算：Node 22 与 26 的分母口径已用 --test-coverage-exclude 对齐，
+        # 但用例执行顺序跨平台仍会让分支命中抖动，Windows 上只跑测试、不设门禁。
+        if: runner.os == 'Linux'
         run: npm run test:coverage

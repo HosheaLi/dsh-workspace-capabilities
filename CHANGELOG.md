@@ -39,6 +39,18 @@
 
 ### 修复
 
+- **Windows 上设置面板与 `/技能` 面板完全不可用**（2026-11-19 Windows 11 实机复现）：`lib/rpc.js`
+  用 `cwd.startsWith('/')` 判绝对路径，真实 `C:\...` 一律被拒，`state` / `setSkill` / `setSkills` /
+  `setDefault` / `setMcp` 全部返回 `cwd 必须是非空的绝对路径`。现改为 `node:path` 的 `isAbsolute`
+  并按 `resolve` 归一；面板在 Windows 上是功能性阻断，不是显示问题。
+- **工作区清单的跨平台归一**：`registryWorkspaces` / `listWorkspaces` / 读与写两份准入清单统一用
+  `pathKey`（`resolve` + Windows 小写）建键与去重 —— 否则 `C:\Foo` 与 `c:\foo` 会重复出行、
+  准入也会误拒。`agentScopeMatch` 的项目根比较同样改用该键。
+- **会话工作区标题取整条路径**：`lib/rpc.js` 用 `root.split('/')` 取最后一段，Windows 路径不含 `/`，
+  标题变成完整 `C:\...`；改用 `basename`。
+- **`shortenPath` 只认 POSIX home**：`lib/client.js` 现在也把 `C:\Users\<名字>\...` 收敛成 `~\...`。
+- **CI 恢复 Windows 矩阵**：`npm test` 在 `ubuntu-latest` 与 `windows-latest` 上跑，覆盖率门禁只在
+  Ubuntu 上算；导出 `--test-coverage-exclude="test/**"` 消除 Node 22 / 26 的覆盖率分母差异。
 - **client 半边的模块注册 id 与包名不一致**：`lib/client.js` 仍以 `dsh-workspace-scope` 调
   `window.__ModuleLoader__.load()`，改名后客户端报 `loaded without registering
   "dsh-workspace-capabilities"`，设置页不出现「工作区能力」。现已改为与包名一致，并同步更新
