@@ -1,6 +1,13 @@
 {
   "version": 1,
   "skills": {
+    "alibaba-java-review": "off",
+    "database": "off",
+    "go": "off",
+    "java-spring": "off",
+    "kotlin-android": "off",
+    "kotlin-reviewer": "off",
+    "miniapp-taro": "off",
     "swift": "off"
   },
   "mcp": {}
