@@ -29,6 +29,9 @@
 | `>=0.2.1-rc.2 <0.3.0` | `engines.dsh` 允许范围 |
 | `<0.2.1-rc.2` | 不支持 |
 
+只在 macOS / Linux 上验证。Windows 上的**设置面板未适配**：`lib/rpc.js` 用 POSIX 绝对路径判定
+`cwd`，`C:\...` 会被拒绝；因此 CI 只跑 Ubuntu，Windows 兼容性不在本版承诺内。
+
 ## 三种状态
 
 | 状态 | 进 `<available_skills>` | `skill` 工具 | `/名` 手势 | 用途 |
@@ -263,7 +266,7 @@ npm run test:integration   # 只跑集成测试，需先在 /tmp/dshref/runtime 
 npm run test:coverage  # 覆盖率门禁：行 95% / 函数 90% / 分支 80%
 ```
 
-CI 在 Ubuntu 与 Windows 上跑同一套测试；`v*` tag 会触发 npm 发布与 GitHub Release。
+CI 在 Ubuntu 上跑同一套测试；`v*` tag 会触发 npm 发布与 GitHub Release。
 
 覆盖率（2026-11-19 实测）：**行 99.21% / 分支 88.04% / 函数 94.33%**，CI 门禁为行 95% / 函数 90% / 分支 80%。
 测试入口、覆盖率口径与

@@ -16,7 +16,7 @@
   `locale/zh.json`、`icon.svg`；新增 format 1 市场索引（`index.json`）与生成、校验脚本
   （`tools/build-market-index.mjs`、`tools/check-market-index.mjs`）。
 - 发布流程与各社区渠道要求见 [`docs/publishing.md`](docs/publishing.md)。
-- 发布工程：新增 Ubuntu + Windows 的 CI（`npm test` + 覆盖率门禁 95/90/80）与 tag 触发的
+- 发布工程：新增 Ubuntu 的 CI（`npm test` + 覆盖率门禁 95/90/80）与 tag 触发的
   npm + GitHub Release 工作流；新增 [`README.en.md`](README.en.md)、中英双语的兼容性矩阵与
   和 `dsh-workspace-scope` 的功能对照表。
 
