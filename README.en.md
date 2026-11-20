@@ -153,9 +153,10 @@ Both plugins solve per-workspace skill/MCP policy; they cannot be installed toge
 
 ### CI results
 
-Latest GitHub Actions run: `02dcb5a` (current `HEAD`),
+Latest GitHub Actions run: `02dcb5a`,
 [run 44555345566](https://github.com/HosheaLi/dsh-workspace-capabilities/actions/runs/44555345566),
-started 2026-11-19T15:29Z, about 20 s per job.
+started 2026-11-19T15:29Z, about 20 s per job. Later doc-only changes are not yet pushed, so this
+run does not cover them.
 
 | Job | Result | Covers |
 | --- | --- | --- |
