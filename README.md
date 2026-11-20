@@ -6,7 +6,7 @@
 
 按**工作区（项目目录）**决定技能是否进入模型目录，并屏蔽与本项目无关的 MCP 服务器 —— **工具 schema 与 server instructions 提示词段都屏蔽**。
 
-> **当前发布状态（2026-11-19）**：GitHub 仓库与插件索引已公开，[索引安装](#方式一从插件市场索引安装发布后可用)
+> **当前发布状态（2026-11-20 复核）**：GitHub 仓库与插件索引已公开，[索引安装](#方式一从插件市场索引安装发布后可用)
 > 今天可用；npm 包与 `v0.1.0` tag 尚未发布，npm / Git 固定版本安装在其后生效。
 
 一句话语义：把某个技能标成 `manual` 之后，**模型看不见它，但 `/技能名` 手动调用照样注入全文**。
@@ -20,18 +20,32 @@
 - 零运行时依赖：host 半边只用 node 内置模块，client 半边只依赖平台种子 `react`
 - 宿主基线 `@deepseek-ai/*` 0.2.1-rc.2（2026-10-17 复核），当前桌面端 0.2.2-rc.5 已实测（2026-11-19）
 
-## 兼容性
+## 支持范围与兼容性
 
-| DSH | 状态 |
+> **仅支持 macOS。Windows 版本正在开发，近期更新。**
+
+| 平台 / 宿主 | 状态 |
 | --- | --- |
-| `0.2.2-rc.5`（Desktop / macOS） | 日常使用；163 个用例（140 通过 / 23 集成跳过）（2026-11-19） |
-| `0.2.1-rc.5`（Web） | 宿主契约相同，预期可用；未在 Web 实机复核 |
-| `>=0.2.1-rc.2 <0.3.0` | `engines.dsh` 允许范围 |
-| `<0.2.1-rc.2` | 不支持 |
+| macOS + Desktop `0.2.2-rc.5` | **支持**：日常使用；172 个用例（149 通过 / 23 集成跳过）（2026-11-20 实测） |
+| Windows | **开发中，近期更新**：路径判定与 BOM 相关的修复已在仓库里，CI 也在 `windows-latest` 上跑单测，但**设置面板没有做过 Windows 实机验证**，不承诺可用 |
+| Web（`0.2.1-rc.5`） | 未验证：宿主契约相同，预期可用；没有实机复核 |
+| Linux 桌面 | 未验证 |
+| `engines.dsh` | `>=0.2.1-rc.2 <0.3.0`；更老的宿主不支持 |
 
-Windows 上的设置面板曾**完全不可用**：`lib/rpc.js` 用 POSIX 绝对路径判定 `cwd`，`C:\...` 一律被拒
-（2026-11-19 在 Windows 11 + Desktop `0.2.2-rc.5` 上实测）。现已改用 `node:path` 的平台判断并按
-归一后的键比较工作区，单元测试由 CI 的 `windows-latest` 覆盖；设置面板的 Windows 实机复核待补。
+### CI 实测结果
+
+GitHub Actions 最近一次运行：`02dcb5a`（当前 `HEAD`），
+[run 44555345566](https://github.com/HosheaLi/dsh-workspace-capabilities/actions/runs/44555345566)，
+2026-11-19T15:29Z 起，两个作业各约 20 秒。
+
+| 作业 | 结果 | 覆盖内容 |
+| --- | --- | --- |
+| `test (ubuntu-latest)` | ✅ success | `npm test` + 覆盖率门禁（行 95 / 函数 90 / 分支 80） |
+| `test (windows-latest)` | ✅ success | 同一套 `npm test`；覆盖率门禁按设计跳过（跨平台分支命中会抖） |
+
+**CI 绿不等于 Windows 可用**：Windows 作业只证明单元测试能过，设置面板在 Windows 上没有任何实机
+证据——这就是上表仍写「开发中」的原因。本机同一套检查：`bash scripts/verify.sh` 在 macOS +
+Node v26.13.0 上通过（2026-11-20），结论与 CI 一致。
 
 ## 三种状态
 
@@ -267,16 +281,23 @@ MCP 屏蔽在 `working-directory/change` 后重算。面板的**归属判定按�
 
 ## 开发与测试
 
+一条命令跑全套（语法自检 + 测试 + 覆盖率门禁；本仓库无构建步骤、无 lint 配置，缺项在脚本头注释里如实写明）：
+
 ```bash
-npm test               # 163 用例：140 单测通过 + 23 集成（需运行时，默认跳过）
+bash scripts/verify.sh
+```
+
+```bash
+npm test               # 172 用例：149 单测通过 + 23 集成（需运行时，默认跳过）
 npm run test:unit      # 只跑纯 JS 单测（无宿主依赖）
 npm run test:integration   # 只跑集成测试，需先在 /tmp/dshref/runtime 解包运行时
 npm run test:coverage  # 覆盖率门禁：行 95% / 函数 90% / 分支 80%
 ```
 
-CI 在 Ubuntu 与 Windows 上跑同一套测试（覆盖率门禁只在 Ubuntu 上算）；`v*` tag 会触发 npm 发布与 GitHub Release。
+CI 在 Ubuntu 与 Windows 上跑同一套测试（覆盖率门禁只在 Ubuntu 上算，见上方「CI 实测结果」）；
+**支持范围仍只有 macOS**，Windows 只到「单测能过」。`v*` tag 会触发 npm 发布与 GitHub Release。
 
-覆盖率（2026-11-19 实测）：**行 99.21% / 分支 88.04% / 函数 94.33%**，CI 门禁为行 95% / 函数 90% / 分支 80%。
+覆盖率（2026-11-20 实测）：**行 99.23% / 分支 88.28% / 函数 94.22%**，CI 门禁为行 95% / 函数 90% / 分支 80%。
 测试入口、覆盖率口径与
 波动说明、手工验收清单、维护检查清单见 [`docs/development.md`](docs/development.md)。
 

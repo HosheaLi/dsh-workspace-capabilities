@@ -8,15 +8,14 @@ In one sentence: mark a skill `manual` and the model no longer sees it, while a 
 
 [中文 README](README.md)
 
-> **Release status (2026-11-19)**: the repository and the plugin index are public, so the index
-> install below works today; the npm package and the `v0.1.0` tag are not published yet.
+> **Release status (checked 2026-11-20)**: the repository and the plugin index are public, so the
+> index install below works today; the npm package and the `v0.1.0` tag are not published yet.
 
 - Zero runtime dependencies: the host half uses Node built-ins only, the client half uses the platform-provided `react`
 - Tested on DSH `0.2.2-rc.5` (Desktop, macOS, 2026-11-19); allowed range `>=0.2.1-rc.2 <0.3.0`
-- Windows: the settings panel used to be **unusable** (`lib/rpc.js` accepted only POSIX absolute
-  `cwd`, so every `C:\...` was rejected in a 2026-11-19 test on Windows 11). It now judges paths
-  per platform and normalizes workspace keys; unit tests run on CI's `windows-latest`. The panel
-  still awaits a real-device re-check.
+- Platforms: **macOS only for now**. The Windows build is in progress — see
+  [Supported platforms and compatibility](#supported-platforms-and-compatibility) for the exact scope
+  and the measured CI results.
 
 ## Three states
 
@@ -140,26 +139,45 @@ Both plugins solve per-workspace skill/MCP policy; they cannot be installed toge
 | `serverName` containing `__` | ✅ matched against known servers | ❌ documented as unsupported |
 | Distribution | index / git (npm package pending) | npm one-liner |
 
-## Compatibility
+## Supported platforms and compatibility
 
-| DSH | Status |
+> **macOS only for now. The Windows build is in progress and is expected soon.**
+
+| Platform / host | Status |
 | --- | --- |
-| `0.2.2-rc.5` (Desktop, macOS) | tested in daily use; 163 tests (140 pass, 23 integration skipped) (2026-11-19) |
-| `0.2.1-rc.5` (Web) | same host contracts; expected to work, not re-verified on Web |
-| `>=0.2.1-rc.2 <0.3.0` | allowed by `engines.dsh` |
-| `<0.2.1-rc.2` | unsupported |
+| macOS + Desktop `0.2.2-rc.5` | **Supported**: daily use; 172 tests (149 pass, 23 integration skipped) (measured 2026-11-20) |
+| Windows | **In progress, coming soon**: the path and BOM fixes are already in the repo and CI runs unit tests on `windows-latest`, but the settings panel has never been verified on a real Windows machine — not supported yet |
+| Web (`0.2.1-rc.5`) | unverified: same host contracts, expected to work, no real-device check |
+| Linux desktop | unverified |
+| `engines.dsh` | `>=0.2.1-rc.2 <0.3.0`; older hosts unsupported |
+
+### CI results
+
+Latest GitHub Actions run: `02dcb5a` (current `HEAD`),
+[run 44555345566](https://github.com/HosheaLi/dsh-workspace-capabilities/actions/runs/44555345566),
+started 2026-11-19T15:29Z, about 20 s per job.
+
+| Job | Result | Covers |
+| --- | --- | --- |
+| `test (ubuntu-latest)` | ✅ success | `npm test` + coverage gate (lines 95 / functions 90 / branches 80) |
+| `test (windows-latest)` | ✅ success | the same `npm test`; coverage gate skipped by design |
+
+**Green CI does not mean Windows works**: the Windows job only proves that unit tests pass; the
+settings panel has no real-device evidence. That is why the table above still says "in progress".
+Locally, `bash scripts/verify.sh` passes on macOS + Node v26.13.0 (2026-11-20) with the same verdict.
 
 ## Development
 
 ```sh
-npm test           # 163 tests: 140 unit pass, 23 integration skipped without a runtime
+bash scripts/verify.sh   # syntax self-check + tests + coverage gate (no build step, no lint config)
+npm test           # 172 tests: 149 unit pass, 23 integration skipped without a runtime
 npm run test:coverage
 npm run build:index   # regenerate the market index after a release commit
 ```
 
-Coverage (2026-11-19): **lines 99.21% / branches 88.04% / functions 94.33%**; CI requires
-95% / 90% / 80%. CI runs on Ubuntu and Windows (coverage gate on Linux only); a `v*` tag
-publishes to npm and creates a GitHub Release.
+Coverage (2026-11-20): **lines 99.23% / branches 88.28% / functions 94.22%**; CI requires
+95% / 90% / 80%. CI runs on Ubuntu and Windows (coverage gate on Linux only, see "CI results"
+above); a `v*` tag publishes to npm and creates a GitHub Release.
 
 ## License
 

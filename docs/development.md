@@ -28,8 +28,21 @@ cordis.patch.yml        bundle patch：把 host 半边插进 profile 的 host �
 
 ## 测试
 
+**一条命令跑全套**（2026-11-20 新增；缺项如实声明，见脚本头注释）：
+
 ```bash
-# 全部：163 用例 = 140 单测通过 + 23 集成跳过（缺运行时）
+bash scripts/verify.sh                # 语法自检 + 测试 + 覆盖率门禁
+bash scripts/verify.sh --no-coverage  # 跳过覆盖率门禁（不等价于 CI）
+```
+
+本仓库**没有构建步骤**（`lib/client.js` 是手写 bundle，直出发布产物），
+**也没有 lint 配置**，所以 `verify.sh` 里那两项是替代检查：`node --check` 语法自检、
+`git diff --check` 与 JSON 可解析。别把它当成「已有构建和 lint」。
+
+单项命令：
+
+```bash
+# 全部：172 用例 = 149 单测通过 + 23 集成跳过（缺运行时）
 npm test
 
 # 只跑纯 JS 单测（无宿主依赖）
@@ -44,7 +57,7 @@ npm run test:coverage
 ```
 
 **不要用裸 `node --test` 对比用例数**：Node 的默认发现规则把 `test/helpers/*.js` 也当成测试文件，
-输出会比 `npm test`（显式 `test/**/*.test.js`）多 3 条"通过"，看起来像 166 对 163。两者跑的是同一批
+输出会比 `npm test`（显式 `test/**/*.test.js`）多 3 条"通过"，看起来像 175 对 172。两者跑的是同一批
 用例；`npm test` 才是准绳。
 
 CI 在 `ubuntu-latest` 与 `windows-latest` 上跑 `npm test`；覆盖率门禁只在 Ubuntu 上执行
@@ -63,22 +76,22 @@ mkdir -p /tmp/dshref && mv /tmp/dshref-extract/dsh /tmp/dshref/runtime
 
 ## 覆盖率口径
 
-2026-11-19 实测（宿主 0.2.2-rc.5，单测 + 集成按缺运行时跳过）：
+2026-11-20 实测（宿主 0.2.2-rc.5，单测 + 集成按缺运行时跳过）：
 
 | 文件 | 行 | 分支 | 函数 |
 | --- | --- | --- | --- |
 | `catalog.js` | 100.00 | 90.43 | 100.00 |
-| `client.js` | 98.75 | 82.31 | 90.63 |
-| `config.js` | 100.00 | 90.30 | 96.67 |
-| `cwd.js` | 100.00 | 100.00 | 100.00 |
+| `client.js` | 98.82 | 82.79 | 90.58 |
+| `config.js` | 100.00 | 91.91 | 96.77 |
+| `cwd.js` | 100.00 | 97.44 | 100.00 |
 | `index.js` | 96.80 | 85.37 | 85.00 |
 | `mcp.js` | 100.00 | 96.61 | 100.00 |
-| `policy.js` | 100.00 | 84.21 | 100.00 |
+| `policy.js` | 100.00 | 88.89 | 100.00 |
 | `preset.js` | 100.00 | 94.44 | 100.00 |
 | `prompt.js` | 97.04 | 86.11 | 100.00 |
-| `rpc.js` | 100.00 | 90.60 | 100.00 |
+| `rpc.js` | 100.00 | 90.72 | 100.00 |
 | `skills.js` | 100.00 | 93.62 | 100.00 |
-| **all** | **99.21** | **88.04** | **94.33** |
+| **all** | **99.23** | **88.28** | **94.22** |
 
 CI 门禁为**行 95% / 函数 90% / 分支 80%**。分支命中会随测试文件的执行时序小幅抖动，
 判断退化看门禁与具体未覆盖行，不追小数第二位。
@@ -151,7 +164,7 @@ DSH_RUNTIME_DIR=/tmp/dshref/runtime node tools/probe-skill-catalog-publish.mjs
 
 改完准备提交前：
 
-- [ ] `npm test` 全绿（140 passed / 23 skipped，缺运行时属于预期）
+- [ ] `npm test` 全绿（149 passed / 23 skipped，缺运行时属于预期）
 - [ ] `npm run test:coverage` 通过（行 ≥95% / 函数 ≥90% / 分支 ≥80%）
 - [ ] 新增/修改的行为有对应用例（非平凡逻辑走 RED → GREEN，不写 fixture 框架）
 - [ ] 没引入 `@deepseek-ai/*` 运行时依赖（`package.json` 的 `dependencies` 必须为空）
