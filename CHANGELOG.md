@@ -6,6 +6,20 @@
 > 定为 `0.1.0`，此后按语义化版本递增。历史方案见
 > [`docs/archive/2026-10-11-workspace-capabilities-panel-plan.md`](docs/archive/2026-10-11-workspace-capabilities-panel-plan.md)。
 
+## [0.1.1] - 2026-11-21
+
+### 文档
+
+- **发布状态口径同步**：npm、GitHub Release 与插件索引均已发布，修正 README / README.en 中
+  「npm 包与 `v0.1.0` tag 尚未发布」的旧表述；Git 固定版本安装改用 `#v0.1.1`。
+- **发布流程按 2026-11 的 npm 现实重写**：Granular access token 与 Bypass 2FA、staged publishing 的
+  `0.0.0-stage` 占位与异步转正、2027-01 移除 bypass-2FA 直接发布的公告。
+
+### 持续集成
+
+- `release.yml` 改为幂等：版本已在 npm 时跳过 `npm publish`，`gh release create` 前先 `gh release view`，
+  避免补推 tag 时因「版本已存在」把 workflow 跑红。
+
 ## [0.1.0] - 2026-11-19
 
 ### 发布

@@ -6,10 +6,10 @@
 
 按**工作区（项目目录）**决定技能是否进入模型目录，并屏蔽与本项目无关的 MCP 服务器 —— **工具 schema 与 server instructions 提示词段都屏蔽**。
 
-> **当前发布状态（2026-11-21 实测）**：GitHub 仓库、插件索引与 npm 包
-> [`dsh-workspace-capabilities@0.1.0`](https://www.npmjs.com/package/dsh-workspace-capabilities)
-> 均已公开，[索引安装](#方式一从插件市场索引安装)与 npm 一行安装今天可用；
-> `v0.1.0` tag 尚未推送，Git 固定版本安装需等 tag 推上去。
+> **当前发布状态（2026-11-21 实测）**：npm 包
+> [`dsh-workspace-capabilities@0.1.1`](https://www.npmjs.com/package/dsh-workspace-capabilities)、
+> GitHub Release（`v0.1.0` / `v0.1.1`）与插件索引均已发布；[索引安装](#方式一从插件市场索引安装)、
+> npm 一行安装、Git 固定版本安装今天都可用。
 
 一句话语义：把某个技能标成 `manual` 之后，**模型看不见它，但 `/技能名` 手动调用照样注入全文**。
 常见的「覆盖型」技能插件选择彻底停用（`/名` 一起死掉），这一档是本插件的核心增量。
@@ -18,7 +18,7 @@
 > （Ri0n72Y 维护），与本项目没有代码或配置关系。本项目从 `0.1.0` 起使用
 > `dsh-workspace-capabilities`；包名不同，但注册了同一个 client slot id，不能同时安装。
 
-- 版本 `0.1.0`（首个发布版，2026-11-21 已发布到 npm；变更见 [`CHANGELOG.md`](CHANGELOG.md)）
+- 版本 `0.1.1`（首个发布版 `0.1.0` 的文档同步版，功能不变；变更见 [`CHANGELOG.md`](CHANGELOG.md)）
 - 零运行时依赖：host 半边只用 node 内置模块，client 半边只依赖平台种子 `react`
 - 宿主基线 `@deepseek-ai/*` 0.2.1-rc.2（2026-10-17 复核），当前桌面端 0.2.2-rc.5 已实测（2026-11-19）
 
@@ -193,9 +193,9 @@ DSH_RUNTIME_DIR=/tmp/dshref/runtime node tools/probe-skill-catalog-publish.mjs
 
 ## 安装
 
-> **当前发布状态（2026-11-21 实测）**：方式一（索引）可用；npm 包 `dsh-workspace-capabilities@0.1.0`
-> 已发布，命令行等价装法是 `dsh plugin --profile web add dsh-workspace-capabilities`；方式二依赖
-> `v0.1.0` tag，该 tag 尚未推送。
+> **当前发布状态（2026-11-21 实测）**：方式一（索引）、npm 包（当前 `0.1.1`，命令行等价装法
+> `dsh plugin --profile web add dsh-workspace-capabilities`）与方式二（Git 固定 tag，`v0.1.0` / `v0.1.1`）
+> 今天都可用。
 
 ### 方式一：从插件市场索引安装
 
@@ -212,12 +212,12 @@ https://cdn.jsdelivr.net/gh/HosheaLi/dsh-workspace-capabilities@main/index.json
 备用地址（jsDelivr 不通时）：`https://raw.githubusercontent.com/HosheaLi/dsh-workspace-capabilities/main/index.json`。
 DSH 给索引源的抓取预算是 15 秒，GitHub raw 在部分网络下会超时。
 
-### 方式二：从 Git 安装（固定版本，需先推 tag）
+### 方式二：从 Git 安装（固定版本）
 
 已安装 `dsh` CLI 时，可以绕过索引直接装某个已发布的 commit 或 tag：
 
 ```bash
-dsh plugin --profile web add "git+https://github.com/HosheaLi/dsh-workspace-capabilities.git#v0.1.0"
+dsh plugin --profile web add "git+https://github.com/HosheaLi/dsh-workspace-capabilities.git#v0.1.1"
 ```
 
 Desktop 的 `desktop` profile 不归公开 CLI 管，请在 **插件** 页面安装；装完在插件行里确认版本。

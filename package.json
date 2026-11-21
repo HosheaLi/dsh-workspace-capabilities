@@ -1,6 +1,6 @@
 {
   "name": "dsh-workspace-capabilities",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Per-workspace control over which skills the model auto-loads and which MCP servers stay hidden in DeepSeek Harness",
   "author": "HosheaLi",
   "keywords": [

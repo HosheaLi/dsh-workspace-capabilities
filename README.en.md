@@ -8,9 +8,10 @@ In one sentence: mark a skill `manual` and the model no longer sees it, while a 
 
 [中文 README](README.md)
 
-> **Release status (checked 2026-11-21)**: the repository, the plugin index and the npm package
-> [`dsh-workspace-capabilities@0.1.0`](https://www.npmjs.com/package/dsh-workspace-capabilities) are public,
-> so the index install and the npm install below work today. The `v0.1.0` git tag has not been pushed yet.
+> **Release status (checked 2026-11-21)**: the npm package
+> [`dsh-workspace-capabilities@0.1.1`](https://www.npmjs.com/package/dsh-workspace-capabilities),
+> the GitHub releases (`v0.1.0` / `v0.1.1`) and the plugin index are public; the index, npm and
+> Git tag installs below all work today.
 
 - Zero runtime dependencies: the host half uses Node built-ins only, the client half uses the platform-provided `react`
 - Tested on DSH `0.2.2-rc.5` (Desktop, macOS, 2026-11-19); allowed range `>=0.2.1-rc.2 <0.3.0`
@@ -30,8 +31,7 @@ Default is `pinned`: installing the plugin changes nothing until you mark someth
 
 ## Install
 
-> **Release status (2026-11-21)**: the index and npm installs work today; the Git install
-> needs the `v0.1.0` tag, which has not been pushed yet.
+> **Release status (2026-11-21)**: the index, npm and Git tag installs work today.
 
 ```sh
 dsh plugin --profile web add dsh-workspace-capabilities
@@ -45,10 +45,10 @@ Without npm, add this plugin index under **Settings → Plugins → Experimental
 https://cdn.jsdelivr.net/gh/HosheaLi/dsh-workspace-capabilities@main/index.json
 ```
 
-Or install a pinned commit/tag directly (the `v0.1.0` tag has not been pushed yet):
+Or install a pinned commit/tag directly:
 
 ```sh
-dsh plugin --profile web add "git+https://github.com/HosheaLi/dsh-workspace-capabilities.git#v0.1.0"
+dsh plugin --profile web add "git+https://github.com/HosheaLi/dsh-workspace-capabilities.git#v0.1.1"
 ```
 
 Local source install (works today, development):
