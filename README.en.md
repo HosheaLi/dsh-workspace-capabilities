@@ -8,8 +8,9 @@ In one sentence: mark a skill `manual` and the model no longer sees it, while a 
 
 [中文 README](README.md)
 
-> **Release status (checked 2026-11-20)**: the repository and the plugin index are public, so the
-> index install below works today; the npm package and the `v0.1.0` tag are not published yet.
+> **Release status (checked 2026-11-21)**: the repository, the plugin index and the npm package
+> [`dsh-workspace-capabilities@0.1.0`](https://www.npmjs.com/package/dsh-workspace-capabilities) are public,
+> so the index install and the npm install below work today. The `v0.1.0` git tag has not been pushed yet.
 
 - Zero runtime dependencies: the host half uses Node built-ins only, the client half uses the platform-provided `react`
 - Tested on DSH `0.2.2-rc.5` (Desktop, macOS, 2026-11-19); allowed range `>=0.2.1-rc.2 <0.3.0`
@@ -29,10 +30,8 @@ Default is `pinned`: installing the plugin changes nothing until you mark someth
 
 ## Install
 
-> **Release status (2026-11-19)**: the index install works today; the npm and Git installs
-> become usable once the package and the `v0.1.0` tag are published.
-
-After the npm release:
+> **Release status (2026-11-21)**: the index and npm installs work today; the Git install
+> needs the `v0.1.0` tag, which has not been pushed yet.
 
 ```sh
 dsh plugin --profile web add dsh-workspace-capabilities
@@ -46,7 +45,7 @@ Without npm, add this plugin index under **Settings → Plugins → Experimental
 https://cdn.jsdelivr.net/gh/HosheaLi/dsh-workspace-capabilities@main/index.json
 ```
 
-Or install a pinned commit/tag directly:
+Or install a pinned commit/tag directly (the `v0.1.0` tag has not been pushed yet):
 
 ```sh
 dsh plugin --profile web add "git+https://github.com/HosheaLi/dsh-workspace-capabilities.git#v0.1.0"
@@ -137,7 +136,7 @@ Both plugins solve per-workspace skill/MCP policy; they cannot be installed toge
 | Session `cd` (`workingDirectory`) | ✅ policy follows the current directory | ❌ initial `cwd` only |
 | Invalid config file | ✅ refuses to write | ⚠️ falls back to defaults |
 | `serverName` containing `__` | ✅ matched against known servers | ❌ documented as unsupported |
-| Distribution | index / git (npm package pending) | npm one-liner |
+| Distribution | index / git / npm | npm one-liner |
 
 ## Supported platforms and compatibility
 

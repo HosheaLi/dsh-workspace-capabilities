@@ -9,27 +9,23 @@
 
 ---
 
-## 阶段 1：发布收尾（npm + tag）
+## 阶段 1：发布收尾（npm + tag）——已完成（2026-11-21）
 
-**为什么现在做**：代码与 CI 都齐了，唯一卡住的是发布动作本身。`npm view dsh-workspace-capabilities version` 仍 404，`git ls-remote --tags origin` 无输出（2026-11-20 实测），说明 `v0.1.0` 只存在于本地。
+**结果**：npm 包已上线并复核；`v0.1.0` tag 仍只在本地，这是有意为之。
 
-> 2026-11-20 已完成其中一项：文档用例数从 163 / 140 全线校准为 172 / 149（8 处），覆盖率表同步到当日实测，
-> README 的支持范围也改成如实的「仅 macOS、Windows 开发中」。剩下的是发布动作本身。
+- `dsh-workspace-capabilities@0.1.0` 于 2026-11-21 04:09:35 UTC 上线（首次 `npm publish` 04:07:28 只建了占位版）。
+- `dist-tags.latest = 0.1.0`，`engines.dsh = >=0.2.1-rc.2 <0.3.0`；干净目录
+  `npm i dsh-workspace-capabilities@0.1.0` 实测装上，`lib/` 的 11 个模块齐全。
+- npm 的 staged publishing 会给新包先建 `0.0.0-stage` 占位（`stub: true`，2 文件 / 348 B），
+  真实版本异步转正约 3 分钟；`npm view ... dist-tags` 仍指向占位时先等 3–5 分钟，别立刻重发。
+- bypass-2FA token 的直接发布已被 npm 开始限制（`npm publish` 输出带 deprecation 链接），
+  下个版本改用 trusted publishing 或 stage-only token + `npm stage approve`。
+- **tag 仍只在本地**：推 tag 会触发 `release.yml` 再发一次 0.1.0，registry 拒绝覆盖版本、
+  workflow 必红。所以「本地手动发布」与「CI tag 发布」只能二选一，当前走前者。
 
-**要做的**：
-1. 配置 `NPM_TOKEN`（`docs/publishing.md`「仓库自动化」与「手动发布」两节）。**这一步人判**：需要 npm 账号权限。
-2. 推 `v0.1.0` tag，让 `release.yml` 发 npm 并建 GitHub Release；或者在本地直接 `npm publish`（步骤见 `docs/publishing.md`）。
-3. 发布成功后重跑 `npm run build:index`（把索引钉到发布 commit）并提交；README 首屏去掉「待发布」口径与 npm 徽章的占位。
-
-**判据**：
+**判据**（保留，供下次发布核对）：
 
 ```bash
-# 文档计数已对齐（应输出 0）
-grep -rn "163 用例\|163 tests\|140 通过\|140 pass" README.md README.en.md docs/ | wc -l
-
-# tag 已推到 origin
-git ls-remote --tags origin | grep -q 'refs/tags/v0.1.0' && echo "tag ok"
-
 # npm 上能查到，且与 package.json 一致
 [ "$(npm view dsh-workspace-capabilities version)" = "$(node -p "require('./package.json').version")" ] && echo "npm ok"
 
@@ -40,7 +36,7 @@ node tools/check-market-index.mjs
 bash scripts/verify.sh
 ```
 
-**完成标志**：上面前四条都打印 ok，且 `release.yml` 在 GitHub 上跑绿。
+**完成标志**：前两条打印 ok。tag 那条转到「是否切 CI 发布」时再单独判，不在本阶段范围。
 
 ---
 

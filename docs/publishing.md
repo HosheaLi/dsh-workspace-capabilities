@@ -1,6 +1,6 @@
 # 发布到 DSH 插件市场
 
-> 核对时间：2026-11-19（2026-11-20 复核了发布状态与 CI 结果），宿主 `0.2.2-rc.5`。DSH 的插件分发是「包 + 索引」，没有中心化上传后台；
+> 核对时间：2026-11-21（复核了 npm 发布状态、Granular token 与 staged publishing 行为），宿主 `0.2.2-rc.5`。DSH 的插件分发是「包 + 索引」，没有中心化上传后台；
 > 官方在 2026-11-05 才宣布筹建官方插件市场，当前版本里能用的只有实验性的自定义索引。
 
 ## 机制
@@ -22,19 +22,18 @@ DSH 不校验索引里的声明，只校验格式；安装时仍走正常的插�
 - 索引校验器：[`@deepseek-ai/dsh-plugin-market-index`](https://www.npmjs.com/package/@deepseek-ai/dsh-plugin-market-index)
 - 官方索引生成器：`apps/plugin-market-generator`（从 npm 包名 / Git 仓库清单生成）
 
-## 当前状态（2026-11-20 复核）
+## 当前状态（2026-11-21 实测）
 
-仓库已公开（`https://github.com/HosheaLi/dsh-workspace-capabilities`），索引地址实测返回 200，
-所以「从索引安装」与「本地源码安装」可用。npm 上仍没有 `dsh-workspace-capabilities`
-（`npm view` 404），`v0.1.0` tag 也还没推 —— npm 一行安装与 Git 固定版本安装都还不可用。
-剩下的发布步骤：
+仓库已公开，索引地址实测返回 200，所以「从索引安装」与「本地源码安装」可用。npm 包已发布：
 
-1. 配置 `NPM_TOKEN`（见「仓库自动化」）；没有它时 tag 触发的 release 会在 publish 步失败；
-2. 推 `v0.1.0` tag，让 release workflow 发 npm 并建 GitHub Release；
-3. npm 发布后，README 首屏的状态块与 npm 徽章即可去掉「待发布」口径。
+- `dsh-workspace-capabilities@0.1.0`（2026-11-21 04:09:35 UTC），`dist-tags.latest` 指向 `0.1.0`；
+- 版本列表里另有 `0.0.0-stage`，那是 npm staged publishing 给新包建的占位（`stub: true`），
+  不是真实版本，装它没有意义；
+- `v0.1.0` tag 仍只在本地，Git 固定版本安装（`#v0.1.0`）**仍不可用**。
 
-不想动 CI secrets 也行：在本地手动 `npm publish`，步骤见下一节。**两条路只能走一条**
-（见该节末尾的「为什么不能既手动发布又推 tag」）。
+剩余可选项只有「要不要切到 CI 发布」：推 tag 会触发 `release.yml` 再发一次 0.1.0，
+registry 拒绝覆盖已发布版本，workflow 必红。所以「本地手动发布」与「CI tag 发布」
+只能二选一，当前已完成前者（见「手动 npm 发布」节末尾的「为什么不能既手动发布又推 tag」）。
 
 ## 本项目采用的方案
 
@@ -90,19 +89,41 @@ jsDelivr 读 `main` 分支，CDN 快、不受 GitHub raw 15 秒超时影响；�
 
 ## 手动 npm 发布（不依赖 CI，逐步可抄）
 
-> 前提：npm 账号对 `dsh-workspace-capabilities` 这个名字有发布权。名字目前未被占用
-> （`npm view dsh-workspace-capabilities version` 返回 404，2026-11-20 复核）。同为 `dsh-workspace-scope`
-> 的那个包是 Ri0n72Y 的独立实现，别用旧名发。
+> 前提：npm 账号对 `dsh-workspace-capabilities` 这个名字有发布权。该名字已于 2026-11-21
+> 由 `hosheali` 发布 `0.1.0`（`npm view dsh-workspace-capabilities version` 返回 `0.1.0`）。
+> 同为 `dsh-workspace-scope` 的那个包是 Ri0n72Y 的独立实现，别用旧名发。
 
 ### 0. 前置检查
 
 ```bash
 cd ~/code/D03_dsh-workspace-scope
-node -v                                        # 需要 >= 22（engines.node）
-npm whoami                                     # 没登录就先 npm login（浏览器/一次性密码）
-npm view dsh-workspace-capabilities version    # 期望 404：名字还没被占
-git status --short                             # 期望为空：发布前工作区必须干净
+node -v                                              # 需要 >= 22（engines.node）
+npm whoami --registry=https://registry.npmjs.org     # 没登录就先建 Granular token（见 0.1）
+npm view dsh-workspace-capabilities version          # 新包期望 404；已占用时应返回本账号的版本
+git status --short                                   # 期望为空：发布前工作区必须干净
 ```
+
+注意默认 registry 若是镜像（本机是 `registry.npmmirror.com`），`whoami` 会查到镜像上去并报
+`need auth`，所以必须显式带 `--registry=https://registry.npmjs.org`。`npm publish` 走
+`package.json` 的 `publishConfig.registry`，不受影响。
+
+### 0.1 凭据：只剩 Granular token
+
+npm 自 2025-11 起移除 legacy / Automation token，只支持 **Granular access token**：
+
+1. <https://www.npmjs.com/settings/~/tokens> → Generate New Token → Granular Access Token；
+2. Permissions 选 **Read and write**；Packages and scopes 选 All packages（新包尚不存在，选不了具体包）；
+3. **勾选 Bypass 2FA**，否则 `npm publish` 会停在 `EOTP`（一次性密码只在该终端交互时可用）；
+4. 有效期设短（1 天足够），写入本机：`npm config set //registry.npmjs.org/:_authToken <token> --location=user`；
+5. 发布完成后立刻在 Tokens 页面删掉它。
+
+> **token 大小写敏感**：标准前缀是 `npm_`。粘贴时被自动大写成 `Npm_` 会得到 `E401`，
+> 而 `npm whoami` 能过、`npm publish` 才失败的那种情况通常是别的权限问题，别混为一谈。
+>
+> **bypass-2FA 的直接发布正在被限制**：npm 官方公告 2027-01 移除「用 granular token 直接发布
+> 新版本」的能力，届时要用 stage-only token + `npm stage publish`，再由维护者
+> `npm stage approve <stage-id> --otp <code>`。发布时 CLI 会打印这条 deprecation 链接。
+> 长期方案是切 trusted publishing（OIDC），见「仓库自动化」。
 
 ### 1. 定版本与变更记录
 
@@ -140,6 +161,13 @@ npm publish --access public
 # 开了 2FA 的账号要在同一行带一次性密码：
 npm publish --access public --otp=123456
 ```
+
+> **首次发布新包会先出现 `0.0.0-stage` 占位**：npm 的 staged publishing 会给尚不存在的包
+> 建一个 `stub: true` 的占位版本，真实版本异步转正。2026-11-21 实测：`npm publish` 在
+> 04:07:28 返回 `+ dsh-workspace-capabilities@0.1.0`，但 04:08 时 `dist-tags.latest` 仍是
+> `0.0.0-stage`，04:09:35 才变成 `0.1.0`。**看到占位先等 3–5 分钟再查**，不要立刻重发：
+> 重发同版本会 `E403`，改用 `npm stage publish` 会得到 `E409 Cannot stage previously published version`。
+> 若 `npm stage list` 出现条目，说明版本真进了待批队列，需要 `npm stage approve <uuid>` 并输入 OTP。
 
 不要加 `--provenance`：它要 CI 的 OIDC 身份，本地发布会报 provenance 相关的错。
 `--access public` 对无 scope 的包是幂等的，写上是为了不和以后可能的 scoped 包混淆。
@@ -193,8 +221,10 @@ git add index.json && git commit -m "chore(market): 索引指向 x.y.z 发布提
 | `.github/workflows/release.yml` | push `v*` tag | 校验 tag 与 `package.json` 版本一致 → 跑测试 → `npm publish --provenance` → 建 GitHub Release |
 
 首次发布 npm 前，在仓库 **Settings → Secrets and variables → Actions** 里加 `NPM_TOKEN`
-（npm 账号的 Automation token）。也可以改用 npm 的 trusted publishing（OIDC），
-那样不需要 token，但要在 npm 包设置里先绑定仓库与工作流。手动发布同样可以：
+（npm 的 **Granular access token**：Read and write、勾 Bypass 2FA、设短过期时间；2025-11 起
+npm 已移除 legacy / Automation token，旧口径不要再抄）。也可以改用 npm 的 trusted publishing
+（OIDC），那样不需要 token，但要在 npm 包设置里先绑定仓库与工作流。包已发布后（当前状态），
+还可以在 **Settings → Publishing access** 收紧为「拒绝 token 发布」，只留 OIDC。手动发布同样可以：
 
 ```bash
 npm publish --access public --registry https://registry.npmjs.org
