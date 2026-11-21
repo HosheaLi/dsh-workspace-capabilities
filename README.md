@@ -36,9 +36,11 @@
 
 ### CI 实测结果
 
-GitHub Actions 最近一次运行：`02dcb5a`，
-[run 44555345566](https://github.com/HosheaLi/dsh-workspace-capabilities/actions/runs/44555345566)，
-2026-11-19T15:29Z 起，两个作业各约 20 秒。之后的文档改动尚未推送，所以不在这次运行的覆盖范围内。
+0.1.1 发布收尾的 CI 运行：`fe7a4d4`（索引加入 0.1.1），
+[run 44865649215](https://github.com/HosheaLi/dsh-workspace-capabilities/actions/runs/44865649215)，
+2026-11-21T04:20Z 起，两个作业各约 21 秒；`v0.1.1` tag 的 release 也通过
+（[run 44865656135](https://github.com/HosheaLi/dsh-workspace-capabilities/actions/runs/44865656135)，
+版本已在 npm，跳过发布步骤，只建 Release）。
 
 | 作业 | 结果 | 覆盖内容 |
 | --- | --- | --- |

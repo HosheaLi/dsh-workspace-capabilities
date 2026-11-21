@@ -152,10 +152,11 @@ Both plugins solve per-workspace skill/MCP policy; they cannot be installed toge
 
 ### CI results
 
-Latest GitHub Actions run: `02dcb5a`,
-[run 44555345566](https://github.com/HosheaLi/dsh-workspace-capabilities/actions/runs/44555345566),
-started 2026-11-19T15:29Z, about 20 s per job. Later doc-only changes are not yet pushed, so this
-run does not cover them.
+CI run for the 0.1.1 release wrap-up: `fe7a4d4` (index adds 0.1.1),
+[run 44865649215](https://github.com/HosheaLi/dsh-workspace-capabilities/actions/runs/44865649215),
+started 2026-11-21T04:20Z, about 21 s per job; the `v0.1.1` release run also passed
+([run 44865656135](https://github.com/HosheaLi/dsh-workspace-capabilities/actions/runs/44865656135),
+version already on npm, publish skipped, Release only).
 
 | Job | Result | Covers |
 | --- | --- | --- |
