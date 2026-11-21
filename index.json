@@ -68,6 +68,18 @@
           "engines": {
             "dsh": ">=0.2.1-rc.2 <0.3.0"
           }
+        },
+        {
+          "version": "0.1.1",
+          "publishTimestamp": 1795234661,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/HosheaLi/dsh-workspace-capabilities",
+            "commit": "261911d6c197412120c767ed7e7550f84418ce34"
+          },
+          "engines": {
+            "dsh": ">=0.2.1-rc.2 <0.3.0"
+          }
         }
       ]
     }
