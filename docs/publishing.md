@@ -242,8 +242,10 @@ npm publish --access public --registry https://registry.npmjs.org
 | [dsh-plugin.org](https://dsh-plugin.org/zh/submit) | 公开仓库、GitHub topic `dsh-plugin`、README 含安装命令、根目录 `package.json` | 按模板开 Issue |
 | [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) | 一条列表项；索引由 `dsh-plugin-catalog` 发布到 npm，dsh-market 读取 | 向仓库提 PR |
 
-本项目已具备：MIT 许可证、README 安装段、`dsh.bundle` 清单、根 `package.json`。还差公开仓库和
-GitHub topic `dsh-plugin`。dsh.so 的仓库名规则 `^[a-z0-9]+(-[a-z0-9]+)*$` 也满足。
+本项目已具备：公开仓库、MIT 许可证、README 安装段（含 npm / 索引安装命令）、`dsh.bundle` 清单、
+根 `package.json`、GitHub topic `dsh-plugin`（2026-11-21 实测仓库设为 `deepseek-harness`、
+`dsh-plugin`、`mcp`、`skills`）。dsh.so 的仓库名规则 `^[a-z0-9]+(-[a-z0-9]+)*$` 也满足。
+三个社区渠道均未提交，属于可选项。
 
 ## 命名注意
 
