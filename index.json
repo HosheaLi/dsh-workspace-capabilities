@@ -59,11 +59,11 @@
       "versions": [
         {
           "version": "0.1.0",
-          "publishTimestamp": 1795102131,
+          "publishTimestamp": 1795190321,
           "source": {
             "type": "git",
             "url": "https://github.com/HosheaLi/dsh-workspace-capabilities",
-            "commit": "1858113eb4f084112390110e967701e47361a726"
+            "commit": "902e60786768dc060d2bb449b1a517ccbc7015de"
           },
           "engines": {
             "dsh": ">=0.2.1-rc.2 <0.3.0"
